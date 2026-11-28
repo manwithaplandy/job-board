@@ -208,7 +208,7 @@ const LAYOUT_CSS = `
 .jb-table th, .jb-table td { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border); text-align: start; vertical-align: middle; }
 .jb-table th { font-size: var(--font-size-caption); font-weight: 600; color: var(--text-secondary); white-space: nowrap; }
 .jb-table .jb-num { text-align: end; font-variant-numeric: tabular-nums; }
-.jb-table__sort { display: inline-flex; align-items: center; gap: var(--space-1); min-height: var(--target-size); margin: calc(var(--space-2) * -1) 0; padding: 0; border: 0; background: transparent; font: inherit; color: inherit; cursor: pointer; }
+.jb-table__sort { display: inline-flex; align-items: center; gap: var(--space-1); min-height: var(--target-size); min-width: var(--target-size); margin: calc(var(--space-2) * -1) 0; padding: 0; border: 0; background: transparent; font: inherit; color: inherit; cursor: pointer; }
 .jb-table .jb-num .jb-table__sort { flex-direction: row-reverse; }
 .jb-table__sort::after { content: "\\2195"; color: var(--text-muted); }
 .jb-table th[aria-sort="ascending"] .jb-table__sort::after { content: "\\2191"; color: var(--text-primary); }
@@ -216,7 +216,7 @@ const LAYOUT_CSS = `
 .jb-table__row { cursor: pointer; }
 .jb-table__row:hover { background: var(--bg-muted); }
 .jb-table__row td { height: var(--target-size); }
-.jb-table__more { display: inline-flex; align-items: center; justify-content: center; min-height: var(--target-size); margin-top: var(--space-2); padding: 0 var(--space-4); border: 1px solid var(--border-strong); border-radius: var(--radius-control); background: var(--bg-surface); font: inherit; font-size: var(--font-size-control); color: var(--text-primary); cursor: pointer; }
+.jb-table__more { display: inline-flex; align-items: center; justify-content: center; min-height: var(--target-size); min-width: var(--target-size); margin-top: var(--space-2); padding: 0 var(--space-4); border: 1px solid var(--border-strong); border-radius: var(--radius-control); background: var(--bg-surface); font: inherit; font-size: var(--font-size-control); color: var(--text-primary); cursor: pointer; }
 .jb-table__more:hover { background: var(--bg-muted); }
 .jb-table__sort:focus-visible, .jb-table__more:focus-visible, .jb-table__row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .jb-timeline { list-style: none; margin: 0; padding: 0; }

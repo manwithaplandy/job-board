@@ -1279,6 +1279,54 @@ test.describe("expanded view (PR 3)", () => {
   }
 });
 
+test.describe("kit controls (PR 5)", () => {
+  for (const lane of Object.keys(SANDBOX_LANES) as SandboxLane[]) {
+    test(`[${lane}] kit-controls: handshake, a slider key and a tab arrow key change what is shown, a chart mark and a table row answer Enter, nothing leaves`, async ({
+      page,
+      request,
+      browserName,
+    }) => {
+      const run = await startCase(page, request, browserName, "kit-controls", lane);
+      requireControls(run, laneControls(lane, "kit-controls"));
+      await openHarness(run, lane, "kit-controls");
+      expect(await waitForProbe(run, "kit-controls", "init", 8_000), `${run.at}: init never reached the frame over the port`).toBe(true);
+      expect(await waitForProbe(run, "kit-controls", "done", 5_000), `${run.at}: the document ran its init`).toBe(true);
+      const frame = page.frameLocator("[data-sandbox-surface] iframe").first();
+
+      // The slider: one ArrowRight steps 40 to 45, in the shown value and in the change event.
+      await expect(frame.locator("#fit .jb-slider__value"), `${run.at}: the slider's starting value`).toHaveText("40");
+      await frame.locator('#fit input[type="range"]').press("ArrowRight");
+      await expect(frame.locator("#fit .jb-slider__value"), `${run.at}: the slider after ArrowRight`).toHaveText("45");
+      expect(await waitForProbe(run, "kit-controls", "slider", 2_000), `${run.at}: the slider sent a change`).toBe(true);
+      expect(probeValue(run.probes, "kit-controls", "slider"), `${run.at}: the slider's change detail`).toBe(45);
+
+      // The tabs: ArrowRight on the selected tab shows the second panel and hides the first.
+      await expect(frame.locator("#summary"), `${run.at}: the first panel shows`).toBeVisible();
+      await expect(frame.locator("#notes"), `${run.at}: the second panel is hidden`).toBeHidden();
+      await frame.locator('#views [role="tab"]').first().press("ArrowRight");
+      await expect(frame.locator("#notes"), `${run.at}: the second panel after ArrowRight`).toBeVisible();
+      await expect(frame.locator("#summary"), `${run.at}: the first panel after ArrowRight`).toBeHidden();
+      await expect(frame.locator('#views [role="tab"]').nth(1), `${run.at}: focus moved to the second tab`).toBeFocused();
+      expect(await waitForProbe(run, "kit-controls", "tab", 2_000), `${run.at}: the tabs sent a change`).toBe(true);
+      expect(probeValue(run.probes, "kit-controls", "tab"), `${run.at}: the tabs' change detail`).toBe(1);
+
+      // host.chart's onSelect and host.table's onRowSelect answer the keyboard.
+      await frame.locator('#chart [role="button"]').first().press("Enter");
+      await expect(frame.locator("#picked"), `${run.at}: the chart mark's onSelect`).toHaveText("Ready 4");
+      await frame.locator("#table tbody tr").nth(1).press("Enter");
+      await expect(frame.locator("#picked"), `${run.at}: the table row's onRowSelect`).toHaveText("Applied row 1");
+
+      await finishCase(run, 1_000);
+      // A benign document asks for nothing, so the canary sees nothing on either lane.
+      expectNoHits(run);
+      expectAttempted(run, "kit-controls");
+      expect(run.record.reports, `${run.at}: no failure was stored`).toEqual([]);
+      expect(run.record.fallbacks, `${run.at}: the frame did not fall back`).toEqual([]);
+      expectContained(run);
+    });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // baseline-csp lane: the host's own teardown, and what one navigation carries (gate A18)
 // ---------------------------------------------------------------------------

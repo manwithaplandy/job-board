@@ -76,6 +76,23 @@ describe("sandbox harness fixtures", () => {
     }
   });
 
+  test("kit-controls uses every PR 5 element, a chart with onSelect and a table, and stays static (PR 5)", () => {
+    expect(isSandboxCaseName("kit-controls")).toBe(true);
+    const html = sandboxCase("kit-controls").frames[0].html;
+    for (const tag of ["<jb-select", "<jb-slider", "<jb-toggle", "<jb-segmented", "<jb-tabs", "<jb-tab ", 'variant="secondary"']) {
+      expect(html, tag).toContain(tag);
+    }
+    expect(html).toMatch(/host\.chart\([^)]*/);
+    expect(html).toMatch(/onSelect:/);
+    expect(html).toMatch(/host\.table\(/);
+    expect(html).toMatch(/onRowSelect:/);
+    // The slider and the tabs report what they show, so the browser test can read it.
+    expect(html).toContain('P("slider"');
+    expect(html).toContain('P("tab"');
+    expect(html, "no action is sent: the jb-buttons carry none").not.toMatch(/host\.action\(|action=/);
+    expect(html).not.toMatch(/\bfetch\b|new Image|location/);
+  });
+
   test("the canary server listens on the port the fixtures name", () => {
     const server = readFileSync(path.join(process.cwd(), "tests/sandbox/canary-server.mjs"), "utf8");
     expect(server).toContain(`process.env.SANDBOX_CANARY_PORT ?? ${SANDBOX_CANARY_PORT}`);

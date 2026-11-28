@@ -8,6 +8,7 @@ import {
   HARNESS_ASK_SWAPPED,
   HARNESS_ASK_TEXT,
   HARNESS_JOB_A,
+  HARNESS_CROSS_SLIDE_PX,
   HARNESS_SLIDE_PX,
   SANDBOX_CANARY_ORIGIN, SANDBOX_CANARY_PORT, SANDBOX_CASES, SANDBOX_CASE_NAMES, isSandboxCaseName, sandboxCase } from "./fixtures";
 
@@ -143,6 +144,24 @@ describe("sandbox harness fixtures", () => {
     expect(html).toContain('pad.classList.remove("sbx-tall")');
     expect(html).toContain('P("slid" + slides, { at: Date.now() })');
     expect(html).not.toMatch(/\bfetch\b|new Image|location/);
+  });
+
+  test("ask-cross-view-slide: view A shrinks itself by HARNESS_CROSS_SLIDE_PX on a click, view B asks on a click, and neither reaches out (fix wave follow-up)", () => {
+    expect(isSandboxCaseName("ask-cross-view-slide")).toBe(true);
+    const frames = sandboxCase("ask-cross-view-slide").frames;
+    expect(frames.map((f) => f.tag)).toEqual(["cross-a", "cross-b"]);
+    const [a, b] = frames.map((f) => f.html);
+    expect(a).toContain(`.sbx-tall { height: ${HARNESS_CROSS_SLIDE_PX}px; }`);
+    expect(a).toContain('pad.classList.remove("sbx-tall")');
+    expect(a).toContain('P("shrunk" + shrinks, { at: Date.now() })');
+    expect(a).not.toContain("host.ask(");
+    expect(b).toContain(`host.ask("${HARNESS_ASK_TEXT}")`);
+    // Neither probe log shows, so a probe line never moves anything.
+    for (const html of [a, b]) {
+      expect(html).toContain("#probe { display: none; }");
+      expect(html).not.toMatch(/\bfetch\b|new Image|location/);
+    }
+    expect(HARNESS_CROSS_SLIDE_PX).toBeLessThan(HARNESS_SLIDE_PX);
   });
 
   test("the canary server listens on the port the fixtures name", () => {

@@ -58,6 +58,12 @@ export const HARNESS_ASK_BIDI_SHOWN = "Show the top two roles now";
  * ask or an action, in px. Send (or the chip) under the frame slides up by exactly this much.
  */
 export const HARNESS_SLIDE_PX = 360;
+/**
+ * ask-cross-view-slide (fix wave follow-up): how far view A shrinks itself on its #shrink
+ * click, in px. Smaller than HARNESS_SLIDE_PX so the whole page, Send included, fits a 1,000 px
+ * viewport with no scroll before and after (a scroll would re-arm Send on its own).
+ */
+export const HARNESS_CROSS_SLIDE_PX = 200;
 
 /** The two gathered jobs the harness surfaces carry (AgentBlocksFixture's FIXTURE_GATHERED). */
 export const HARNESS_JOB_A = "greenhouse:acme:1001";
@@ -118,6 +124,9 @@ export const SANDBOX_CASE_NAMES = [
   // Fix wave I1: after an ask (or an action), the view shrinks itself on the next pointer
   // move so Send (or the chip) slides up under the pointer; a press there must not count.
   "ask-resize-slide",
+  // Fix wave follow-up (I1 residual a): view A above changes its own height, which moves the
+  // pending ask under view B below; a press on B's Send just after must not count.
+  "ask-cross-view-slide",
 ] as const;
 export type SandboxCaseName = (typeof SANDBOX_CASE_NAMES)[number];
 
@@ -1096,6 +1105,45 @@ host.onInit(function () {
   P("done");
 });
 </script>`) }],
+  },
+
+  "ask-cross-view-slide": {
+    title: "ask: view A shrinks itself while view B below has a pending ask, so B's Send moves; a press on it just after counts for nothing",
+    frames: [
+      { tag: "cross-a", html: doc("ask-cross-view-slide", `<style>#probe { display: none; } .sbx-tall { height: ${HARNESS_CROSS_SLIDE_PX}px; }</style>
+<jb-button id="shrink">Shrink</jb-button>
+<jb-button id="grow">Grow</jb-button>
+<div id="pad" class="sbx-tall"></div>
+<script>
+var shrinks = 0;
+var pad = document.getElementById("pad");
+document.getElementById("shrink").addEventListener("click", function () {
+  if (!pad.classList.contains("sbx-tall")) return;
+  pad.classList.remove("sbx-tall");
+  shrinks += 1;
+  P("shrunk" + shrinks, { at: Date.now() });
+});
+document.getElementById("grow").addEventListener("click", function () {
+  pad.classList.add("sbx-tall");
+  P("grown" + shrinks, true);
+});
+host.onInit(function () {
+  P("init", true);
+  P("done");
+});
+</script>`, "cross-a") },
+      { tag: "cross-b", html: doc("ask-cross-view-slide", `<style>#probe { display: none; }</style>
+<jb-button id="ask">Ask about Berlin</jb-button>
+<script>
+document.getElementById("ask").addEventListener("click", function () {
+  P("asked", host.ask("${HARNESS_ASK_TEXT}"));
+});
+host.onInit(function () {
+  P("init", true);
+  P("done");
+});
+</script>`, "cross-b") },
+    ],
   },
 };
 

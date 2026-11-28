@@ -42,8 +42,8 @@ async function waitForViewEntryGone(page: Page) {
 }
 
 /**
- * Fix wave I1: Send ignores presses for CHIP_ARM_MS (700 ms) after the frame's height last
- * changed, as well as after the ask appeared. Waits until the sandbox frame's applied height
+ * Fix wave I1: Send ignores presses for CHIP_ARM_MS (700 ms) after any frame's height last
+ * changed (or the page scrolled with no user input), as well as after the ask appeared. Waits until the sandbox frame's applied height
  * has held still for longer than that, so a press is not lost to a late resize at load.
  */
 async function waitForFrameStill(page: Page, stillMs = 900, capMs = 8_000) {
@@ -256,9 +256,16 @@ for (const viewport of VIEWPORTS) {
       await composer.pressSequentially("A draft I am still writing");
       await expect(composer).toHaveValue("A draft I am still writing");
 
+      // Fix wave follow-up: a script scroll re-arms Send too, and Playwright's click scrolls
+      // into view first, so bring Send into view and let any re-arm run out before the press.
+      const send = page.getByRole("button", { name: `Send: ${ASK_PENDING_TEXT}` });
+      const before = await send.boundingBox();
+      await send.scrollIntoViewIfNeeded();
+      const after = await send.boundingBox();
+      if (before === null || after === null || before.x !== after.x || before.y !== after.y) await page.waitForTimeout(900);
       await waitForFrameStill(page);
       const sent = page.waitForRequest((req) => req.method() === "POST" && new URL(req.url()).pathname === "/api/agent");
-      await page.getByRole("button", { name: `Send: ${ASK_PENDING_TEXT}` }).click();
+      await send.click();
       const body: unknown = (await sent).postDataJSON();
       expect(body, "the request is a message").toMatchObject({ kind: "message", text: ASK_PENDING_TEXT, source: { kind: "view" } });
       const id = (body as { id?: unknown }).id;

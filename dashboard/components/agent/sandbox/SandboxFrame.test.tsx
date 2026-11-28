@@ -24,6 +24,7 @@ import {
   type SandboxFrameServer,
   type SandboxSurface,
 } from "./SandboxFrame";
+import { resetPageClocks } from "./arming";
 
 const ID = "44444444-4444-4444-8444-444444444444";
 const THREAD = "11111111-1111-4111-8111-111111111111";
@@ -34,6 +35,7 @@ const SKIP_B: ActionIntent = { name: "shortlist.set", jobId: JOB_B, state: "skip
 const ports: MessagePort[] = [];
 
 beforeEach(() => {
+  resetPageClocks();
   vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
   actions.describeFrameIntentAction.mockReset();
   actions.reportSurfaceFailure.mockReset();
@@ -42,6 +44,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  resetPageClocks();
   for (const p of ports.splice(0)) p.close();
   vi.unstubAllGlobals();
   vi.useRealTimers();
@@ -126,6 +129,11 @@ async function flush(rounds = 5) {
 const LIVENESS_TIMERS: Parameters<typeof vi.useFakeTimers>[0] = {
   toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"],
 };
+
+/** A pointer press (detail 1); fireEvent.click's default detail 0 reads as a keyboard activation. */
+function pointerClick(el: HTMLElement) {
+  fireEvent.click(el, { detail: 1 });
+}
 
 /** A press on the chip once it is armed (CHIP_ARM_MS after it appeared). */
 function pressChip(el: HTMLElement) {
@@ -332,13 +340,13 @@ describe("SandboxFrame", () => {
     port.postMessage({ type: "resize", height: 40 });
     await flush();
     expect(iframe.style.height).toBe("40px");
-    fireEvent.click(chip);
+    pointerClick(chip);
     act(() => vi.advanceTimersByTime(CHIP_ARM_MS - 1));
-    fireEvent.click(chip);
+    pointerClick(chip);
     expect(onIntent).not.toHaveBeenCalled();
     expect(chips()).toHaveLength(1);
     act(() => vi.advanceTimersByTime(1));
-    fireEvent.click(chip);
+    pointerClick(chip);
     expect(onIntent).toHaveBeenCalledTimes(1);
     expect(onIntent).toHaveBeenCalledWith(ID, SHORTLIST_A, "frame");
   });
@@ -358,7 +366,104 @@ describe("SandboxFrame", () => {
     port.postMessage({ type: "resize", height: 1200 });
     await flush();
     expect(iframe.style.height).toBe("1200px");
-    fireEvent.click(screen.getByRole("button", { name: "Shortlist Staff Engineer at Acme" }));
+    pointerClick(screen.getByRole("button", { name: "Shortlist Staff Engineer at Acme" }));
+    expect(onIntent).toHaveBeenCalledTimes(1);
+  });
+
+  test("another view's resize re-arms this view's chip too (fix wave follow-up, residual a)", async () => {
+    vi.useFakeTimers(LIVENESS_TIMERS);
+    // View A above, view B below with the chip; A shrinks itself, sliding B's chip up.
+    const a = mount({ ...surface(), id: "55555555-5555-4555-8555-555555555555" });
+    actions.describeFrameIntentAction.mockResolvedValueOnce(chipFor(SHORTLIST_A, "Shortlist Staff Engineer at Acme"));
+    const b = mount();
+    const portA = ready(a.iframe).port;
+    const portB = ready(b.iframe).port;
+    await flush();
+    portA.postMessage({ type: "resize", height: 600 });
+    portB.postMessage({ type: "action", name: "shortlist.set", args: { jobId: JOB_A, state: "shortlisted" } });
+    await flush();
+    const chip = screen.getByRole("button", { name: "Shortlist Staff Engineer at Acme" });
+    act(() => vi.advanceTimersByTime(2000));
+    portA.postMessage({ type: "resize", height: 240 });
+    await flush();
+    expect(a.iframe.style.height).toBe("240px");
+    pointerClick(chip);
+    act(() => vi.advanceTimersByTime(CHIP_ARM_MS - 1));
+    pointerClick(chip);
+    expect(b.onIntent).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    pointerClick(chip);
+    expect(b.onIntent).toHaveBeenCalledTimes(1);
+    expect(b.onIntent).toHaveBeenCalledWith(ID, SHORTLIST_A, "frame");
+    expect(a.onIntent).not.toHaveBeenCalled();
+  });
+
+  test("another view falling back to its plain view re-arms this view's chip (fix wave follow-up)", async () => {
+    vi.useFakeTimers(LIVENESS_TIMERS);
+    const a = mount({ ...surface(), id: "55555555-5555-4555-8555-555555555555" });
+    actions.describeFrameIntentAction.mockResolvedValueOnce(chipFor(SHORTLIST_A, "Shortlist Staff Engineer at Acme"));
+    const b = mount();
+    const portA = ready(a.iframe).port;
+    const portB = ready(b.iframe).port;
+    await flush();
+    portB.postMessage({ type: "action", name: "shortlist.set", args: { jobId: JOB_A, state: "shortlisted" } });
+    await flush();
+    const chip = screen.getByRole("button", { name: "Shortlist Staff Engineer at Acme" });
+    act(() => vi.advanceTimersByTime(2000));
+    // A's frame is torn down for its fallback, which changes the layout above B.
+    portA.postMessage({ type: "error", message: "boom" });
+    await flush();
+    expect(a.onFallback).toHaveBeenCalledWith("frame_error");
+    pointerClick(chip);
+    expect(b.onIntent).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(CHIP_ARM_MS));
+    pointerClick(chip);
+    expect(b.onIntent).toHaveBeenCalledTimes(1);
+  });
+
+  test("a host scroll with no user input before it re-arms the chip (fix wave follow-up, residual b)", async () => {
+    vi.useFakeTimers(LIVENESS_TIMERS);
+    actions.describeFrameIntentAction.mockResolvedValueOnce(chipFor(SHORTLIST_A, "Shortlist Staff Engineer at Acme"));
+    const { iframe, onIntent } = mount();
+    const { port } = ready(iframe);
+    await flush();
+    port.postMessage({ type: "action", name: "shortlist.set", args: { jobId: JOB_A, state: "shortlisted" } });
+    await flush();
+    const chip = screen.getByRole("button", { name: "Shortlist Staff Engineer at Acme" });
+    act(() => vi.advanceTimersByTime(2000));
+    // A scroll of any element on the page (captured on window), with no wheel, touch or key
+    // before it: the frame may have scrolled its ancestors from inside.
+    act(() => {
+      document.body.dispatchEvent(new Event("scroll"));
+    });
+    pointerClick(chip);
+    act(() => vi.advanceTimersByTime(CHIP_ARM_MS - 1));
+    pointerClick(chip);
+    expect(onIntent).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    pointerClick(chip);
+    expect(onIntent).toHaveBeenCalledTimes(1);
+  });
+
+  test("a keyboard press on the chip skips the move clocks but not the arm delay (fix wave follow-up)", async () => {
+    vi.useFakeTimers(LIVENESS_TIMERS);
+    actions.describeFrameIntentAction.mockResolvedValueOnce(chipFor(SHORTLIST_A, "Shortlist Staff Engineer at Acme"));
+    const { iframe, onIntent } = mount();
+    const { port } = ready(iframe);
+    await flush();
+    port.postMessage({ type: "action", name: "shortlist.set", args: { jobId: JOB_A, state: "shortlisted" } });
+    await flush();
+    const chip = screen.getByRole("button", { name: "Shortlist Staff Engineer at Acme" });
+    // Inside the chip's own arm delay a key press is ignored like any other.
+    fireEvent.click(chip, { detail: 0 });
+    expect(onIntent).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(2000));
+    // The view keeps resizing: a pointer press is held, a key press (detail 0) is not.
+    port.postMessage({ type: "resize", height: 300 });
+    await flush();
+    pointerClick(chip);
+    expect(onIntent).not.toHaveBeenCalled();
+    fireEvent.click(chip, { detail: 0 });
     expect(onIntent).toHaveBeenCalledTimes(1);
   });
 
@@ -946,19 +1051,19 @@ describe("a view's ask", () => {
     port.postMessage({ type: "resize", height: 640 });
     await flush();
     expect(iframe.style.height).toBe("640px");
-    fireEvent.click(button);
+    pointerClick(button);
     act(() => vi.advanceTimersByTime(CHIP_ARM_MS - 1));
-    fireEvent.click(button);
+    pointerClick(button);
     expect(send).not.toHaveBeenCalled();
     expect(askText()).toBe("Compare the top two");
     // Every further move re-arms it again from that move.
     port.postMessage({ type: "resize", height: 500 });
     await flush();
     act(() => vi.advanceTimersByTime(CHIP_ARM_MS - 1));
-    fireEvent.click(button);
+    pointerClick(button);
     expect(send).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(1));
-    fireEvent.click(button);
+    pointerClick(button);
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith("Compare the top two", ID, expect.any(Function));
   });
@@ -970,10 +1075,54 @@ describe("a view's ask", () => {
     await flush();
     port.postMessage({ type: "resize", height: 300 });
     await flush();
-    fireEvent.click(sendButton()!);
+    pointerClick(sendButton()!);
     expect(send).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(CHIP_ARM_MS));
-    fireEvent.click(sendButton()!);
+    pointerClick(sendButton()!);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  test("another view's resize re-arms Send (fix wave follow-up, residual a)", async () => {
+    vi.useFakeTimers(LIVENESS_TIMERS);
+    const other = mount({ ...surface(), id: "55555555-5555-4555-8555-555555555555" });
+    const { iframe, send } = mountAsk();
+    const otherPort = ready(other.iframe).port;
+    const { port } = ready(iframe);
+    await flush();
+    port.postMessage({ type: "ask", text: "Compare the top two" });
+    await flush();
+    const button = sendButton()!;
+    act(() => vi.advanceTimersByTime(2000));
+    otherPort.postMessage({ type: "resize", height: 500 });
+    await flush();
+    pointerClick(button);
+    act(() => vi.advanceTimersByTime(CHIP_ARM_MS - 1));
+    pointerClick(button);
+    expect(send).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    pointerClick(button);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  test("a keyboard press on Send skips the move clocks, so a view that keeps resizing cannot leave Send dead to keys (fix wave follow-up)", async () => {
+    vi.useFakeTimers(LIVENESS_TIMERS);
+    const { iframe, send } = mountAsk();
+    const { port } = ready(iframe);
+    await flush();
+    port.postMessage({ type: "ask", text: "Compare the top two" });
+    await flush();
+    const button = sendButton()!;
+    fireEvent.click(button, { detail: 0 });
+    expect(send).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(CHIP_ARM_MS));
+    port.postMessage({ type: "resize", height: 410 });
+    await flush();
+    act(() => {
+      window.dispatchEvent(new Event("scroll"));
+    });
+    pointerClick(button);
+    expect(send).not.toHaveBeenCalled();
+    fireEvent.click(button, { detail: 0 });
     expect(send).toHaveBeenCalledTimes(1);
   });
 

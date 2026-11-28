@@ -44,7 +44,7 @@
 // at a time (one worker) because the canary's record is shared.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { expect, test, type APIRequestContext, type Page, type TestInfo } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Locator, type Page, type TestInfo } from "@playwright/test";
 import {
   HARNESS_ASK_BIDI_SHOWN,
   HARNESS_ASK_SWAPPED,
@@ -91,6 +91,19 @@ const BASELINE_WAIT_MS = 9_000;
 /** SandboxFrame's CHIP_ARM_MS (components/agent/sandbox/SandboxFrame.tsx; not imported, it pulls in the server actions). */
 const CHIP_ARM_MS = 700;
 const ARMED_AFTER_MS = CHIP_ARM_MS + 200;
+
+/**
+ * Fix wave follow-up: a host scroll that no user wheel, touch, key or pointer press came just
+ * before re-arms Send and the chip for CHIP_ARM_MS (arming.ts), and Playwright's click scrolls
+ * a control into view by script first. So an armed press brings the control into view before
+ * its arm wait; if that scrolled, it waits ARMED_AFTER_MS for the re-arm to run out.
+ */
+async function bringIntoView(page: Page, control: Locator) {
+  const before = await control.boundingBox();
+  await control.scrollIntoViewIfNeeded();
+  const after = await control.boundingBox();
+  if (before === null || after === null || before.x !== after.x || before.y !== after.y) await page.waitForTimeout(ARMED_AFTER_MS);
+}
 /** How often the frames' <pre id="probe"> logs are read while a case runs, so a removed frame's log is not lost. */
 const DOM_POLL_MS = 250;
 /** The host's fallback reasons for a frame whose document was replaced or stopped answering. */
@@ -822,6 +835,7 @@ test.describe(`frame-src-none lane (${SANDBOX_LANES["frame-src-none"]})`, () => 
     const chip = page.locator("[data-sandbox-chip]");
     await expect(chip, `${run.at}: Enter on jb-button produced a chip`).toHaveText("Shortlist Senior Product Engineer at Acme Systems");
     expect(await harnessLog(page, "intents"), `${run.at}: nothing ran before the press`).toEqual([]);
+    await bringIntoView(page, chip);
     await page.waitForTimeout(ARMED_AFTER_MS);
     await chip.click();
 
@@ -1098,6 +1112,7 @@ test.describe(`frame-src-none lane (${SANDBOX_LANES["frame-src-none"]})`, () => 
     }
 
     // (c) Once armed, one click runs the new request once.
+    await bringIntoView(page, chip);
     await page.waitForTimeout(ARMED_AFTER_MS);
     await chip.click();
     await finishCase(run, 500);
@@ -1150,6 +1165,7 @@ test.describe(`frame-src-none lane (${SANDBOX_LANES["frame-src-none"]})`, () => 
     expect(await clickInFrame(run, "#fake-confirm"), `${run.at}: the fake confirm bar was clicked`).toBe(true);
     await waitForProbe(run, "chip_spoof", "fakePressed", 2_000);
     expect(await harnessLog(page, "intents"), `${run.at}: the fake bar's press ran something`).toEqual([]);
+    await bringIntoView(page, chip);
     await page.waitForTimeout(ARMED_AFTER_MS);
     await chip.click();
     await finishCase(run, 1_000);
@@ -1407,6 +1423,7 @@ test.describe("a view's ask (PR 6)", () => {
       const pending = page.locator("[data-sandbox-ask]");
       await expect(pending.locator(".rf-ask__text"), `${run.at}: the pending message shows the exact text`).toHaveText(HARNESS_ASK_TEXT, { timeout: 3_000 });
       await expect(pending, `${run.at}: one pending message`).toHaveCount(1);
+      await bringIntoView(page, page.getByRole("button", { name: `Send: ${HARNESS_ASK_TEXT}` }));
       await page.waitForTimeout(ARMED_AFTER_MS + 300);
       expect(await asksSent(page), `${run.at}: nothing is sent before Send`).toEqual([]);
 
@@ -1646,7 +1663,9 @@ test.describe("a view's ask (PR 6)", () => {
       expect(swap?.posted, `${run.at}: the swap posted inside the click's activation`).toBe(true);
 
       // CHIP_ARM_MS + 100 after the swapped text appeared (and after Send last moved, fix wave I1)
-      // it is armed: Send sends exactly what is on screen.
+      // it is armed: Send sends exactly what is on screen. Brought into view first, since a
+      // script scroll re-arms it too (fix wave follow-up).
+      await bringIntoView(page, send);
       const clock = await swapClock();
       const until = Math.max(shownAt!, clock.movedAt ?? Number.NEGATIVE_INFINITY) + CHIP_ARM_MS + 100 - clock.now;
       if (until > 0) await page.waitForTimeout(until);
@@ -1725,6 +1744,7 @@ test.describe("a view's ask (PR 6)", () => {
       const raw = (await text.textContent()) ?? "";
       expect(raw, `${run.at}: the shown text is exactly the normalised text`).toBe(HARNESS_ASK_BIDI_SHOWN);
       expect(BIDI_OR_INVISIBLE.test((await pending.textContent()) ?? ""), `${run.at}: no bidi, zero-width or control character is shown`).toBe(false);
+      await bringIntoView(page, page.getByRole("button", { name: `Send: ${HARNESS_ASK_BIDI_SHOWN}` }));
       await page.waitForTimeout(ARMED_AFTER_MS);
       await page.getByRole("button", { name: `Send: ${HARNESS_ASK_BIDI_SHOWN}` }).click();
       await finishCase(run, 500);
@@ -1839,6 +1859,8 @@ test.describe("a view's ask (PR 6)", () => {
           },
           { x: px, y: py, waitMs: 1_500, stableMs: 40 },
         );
+      const frameHeight = () => iframe.evaluate((el) => (el instanceof HTMLElement ? el.style.height : ""));
+      type ArmedAt = { px: number; py: number; movedAt: number; slides: number; height: string };
       const maxSlide = () =>
         Math.max(0, ...run.probes.filter((p) => p.t === TAG && /^slid\d+$/.test(p.k)).map((p) => Number(p.k.slice(4))));
       const slidAt = (n: number) => Number((probeValue(run.probes, TAG, `slid${n}`) as { at?: unknown } | undefined)?.at);
@@ -1891,14 +1913,21 @@ test.describe("a view's ask (PR 6)", () => {
         expect(elapsed, `${run.at}: the press landed ${elapsed} ms after the view slid ${what}, too late to test the re-arm window`).toBeLessThan(LANDED_BY_MS);
         await nothingRan();
         run.note(`${what}: the press ${elapsed} ms after the view slid it under the pointer ran nothing (attempt ${attempt}${tries.length > 0 ? `; earlier: ${tries.join("; ")}` : ""}).`);
-        return { px, py, movedAt: settled.movedAt };
+        return { px, py, movedAt: settled.movedAt, slides: before + 1, height: await frameHeight() };
       };
-      /** Waits until CHIP_ARM_MS + 200 ms after the control last moved, then presses where the pointer is. */
-      const pressArmed = async (what: string, sel: string, at: { px: number; py: number; movedAt: number }) => {
+      /**
+       * Waits until CHIP_ARM_MS + 200 ms after the control last moved, then presses where the pointer is.
+       *
+       * Follow-up round: "did not move again" is checked as what it is for, that the view did
+       * not slide again (no new slidN probe) and the host left the frame's height as it was.
+       * The tracker's rect clock is not compared: the early press itself moves the button 1 px
+       * (`.rf-button:active` translateY), which the tracker can sample.
+       */
+      const pressArmed = async (what: string, sel: string, at: ArmedAt) => {
         const until = at.movedAt + ARMED_AFTER_MS - (await slideRec()).now;
         if (until > 0) await page.waitForTimeout(until);
-        const rec = await slideRec();
-        expect(rec.movedAt, `${run.at}: ${what} did not move again before the armed press`).toBe(at.movedAt);
+        expect(maxSlide(), `${run.at}: the view did not slide ${what} again before the armed press`).toBe(at.slides);
+        expect(await frameHeight(), `${run.at}: the frame's height did not change again before the armed press`).toBe(at.height);
         const under = await page.evaluate(({ x, y, selector }) => document.elementFromPoint(x, y)?.closest(selector) != null, { x: at.px, y: at.py, selector: sel });
         expect(under, `${run.at}: ${what} is still under the pointer`).toBe(true);
         await page.mouse.down();
@@ -1908,7 +1937,7 @@ test.describe("a view's ask (PR 6)", () => {
       // (a) The ask: Send slides up under the pointer.
       const pending = page.locator("[data-sandbox-ask]");
       const askTries: string[] = [];
-      let askAt: { px: number; py: number; movedAt: number } | null = null;
+      let askAt: ArmedAt | null = null;
       for (let attempt = 1; attempt <= 3 && askAt === null; attempt++) {
         expect(await clickInFrame(run, "#ask"), `${run.at}: the ask button was clicked (attempt ${attempt})`).toBe(true);
         await expect(pending.locator(".rf-ask__text"), `${run.at}: the pending message shows the text (attempt ${attempt})`).toHaveText(HARNESS_ASK_TEXT, { timeout: 3_000 });
@@ -1940,7 +1969,7 @@ test.describe("a view's ask (PR 6)", () => {
       const chip = page.locator(CHIP);
       const chipLabel = "Shortlist Senior Product Engineer at Acme Systems";
       const chipTries: string[] = [];
-      let chipAt: { px: number; py: number; movedAt: number } | null = null;
+      let chipAt: ArmedAt | null = null;
       for (let attempt = 1; attempt <= 3 && chipAt === null; attempt++) {
         expect(await clickInFrame(run, "#act"), `${run.at}: the action button was clicked (attempt ${attempt})`).toBe(true);
         await expect(chip, `${run.at}: the request's chip (attempt ${attempt})`).toHaveText(chipLabel, { timeout: 5_000 });
@@ -1974,6 +2003,133 @@ test.describe("a view's ask (PR 6)", () => {
         { surface: expect.any(String), value: { intent: { name: "shortlist.set", jobId: HARNESS_JOB_A, state: "shortlisted" }, source: "frame" } },
       ]);
       expect(run.record.fallbacks, `${run.at}: the frame did not fall back`).toEqual([]);
+      expectContained(run);
+    });
+
+    // Fix wave follow-up (I1 residual a): the region under view B also moves when view A above
+    // it changes height. A press on B's Send just after A's resize must count for nothing, though
+    // B's own frame never moved; a press once CHIP_ARM_MS has passed since works.
+    //
+    // A shrinks on a click of its own #shrink (a hostile view could do it on a pointer move;
+    // the click is just the reliable trigger here). The viewport is 1,000 px tall so the whole
+    // page fits with no scroll, and the press is made with page.mouse at Send's new box rather
+    // than locator.click, which could scroll it into view: a scroll re-arms Send by itself
+    // (arming.ts), so an attempt during which the host scrolled proves nothing and is retried.
+    test(`[${lane}] ask-cross-view-slide: another view's resize re-arms Send below it; a press after the re-arm delay works`, async ({
+      page,
+      request,
+      browserName,
+    }) => {
+      const CASE = "ask-cross-view-slide";
+      await page.setViewportSize({ width: 1280, height: 1_000 });
+      const run = await startCase(page, request, browserName, CASE, lane);
+      requireControls(run, laneControls(lane, CASE));
+      await openHarness(run, lane, CASE, ["cross-a", "cross-b"]);
+      expect(await waitForProbe(run, "cross-a", "done", 8_000), `${run.at}: view A ran its init`).toBe(true);
+      expect(await waitForProbe(run, "cross-b", "done", 8_000), `${run.at}: view B ran its init`).toBe(true);
+      const LANDED_BY_MS = CHIP_ARM_MS - 100;
+      const frames = page.frameLocator("[data-sandbox-surface] iframe");
+      const clickIn = (i: number, selector: string) =>
+        frames
+          .nth(i)
+          .locator(selector)
+          .click({ timeout: 2_000 })
+          .then(
+            () => true,
+            () => false,
+          );
+      const pending = page.locator("[data-sandbox-ask]");
+      const send = pending.locator("[data-sandbox-ask-send]");
+      type CrossRec = { scrolls: number; presses: number[] };
+      await page.evaluate(() => {
+        const rec: CrossRec = { scrolls: 0, presses: [] };
+        (window as unknown as { __cross: CrossRec }).__cross = rec;
+        window.addEventListener("scroll", () => (rec.scrolls += 1), { capture: true, passive: true });
+        document.addEventListener(
+          "pointerdown",
+          (e) => {
+            if (e.target instanceof Element && e.target.closest("[data-sandbox-ask-send]")) rec.presses.push(Date.now());
+          },
+          true,
+        );
+      });
+      const crossRec = () => page.evaluate(() => ({ ...(window as unknown as { __cross: CrossRec }).__cross, scrollY: window.scrollY }));
+      const shrunkAt = (n: number) => Number((probeValue(run.probes, "cross-a", `shrunk${n}`) as { at?: unknown } | undefined)?.at);
+
+      expect(await clickIn(1, "#ask"), `${run.at}: view B's ask button was clicked`).toBe(true);
+      await expect(pending.locator(".rf-ask__text"), `${run.at}: the pending message shows the text`).toHaveText(HARNESS_ASK_TEXT, { timeout: 3_000 });
+      const tries: string[] = [];
+      let landed = false;
+      for (let attempt = 1; attempt <= 3 && !landed; attempt++) {
+        // Well past the ask's own arm delay and any earlier move.
+        await page.waitForTimeout(ARMED_AFTER_MS + 300);
+        const before = await send.boundingBox();
+        const start = await crossRec();
+        const viewport = page.viewportSize();
+        expect(
+          before !== null && start.scrollY === 0 && (viewport === null || before.y + before.height < viewport.height),
+          `${run.at}: Send is in view with the page unscrolled before A shrinks (box ${JSON.stringify(before)}, scrollY ${start.scrollY}, attempt ${attempt})`,
+        ).toBe(true);
+        expect(await clickIn(0, "#shrink"), `${run.at}: view A's shrink button was clicked (attempt ${attempt})`).toBe(true);
+        expect(await waitForProbe(run, "cross-a", `shrunk${attempt}`, 2_000), `${run.at}: view A shrank (attempt ${attempt})`).toBe(true);
+        // Wait for Send to move up and hold still for two frames, then press it where it is.
+        const box = await page.evaluate(
+          async ({ y0 }) => {
+            const t0 = Date.now();
+            let last = -1;
+            let still = 0;
+            for (;;) {
+              const r = document.querySelector("[data-sandbox-ask] [data-sandbox-ask-send]")?.getBoundingClientRect() ?? null;
+              if (r !== null && r.y < y0 - 1) {
+                if (r.y === last) still += 1;
+                else still = 0;
+                last = r.y;
+                if (still >= 2) return { x: r.x, y: r.y, width: r.width, height: r.height };
+              }
+              if (Date.now() - t0 > 1_500) return null;
+              await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+            }
+          },
+          { y0: before!.y },
+        );
+        expect(box, `${run.at}: Send moved up when view A shrank (attempt ${attempt})`).not.toBeNull();
+        await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+        const after = await crossRec();
+        const press = after.presses.at(-1) ?? null;
+        expect(press, `${run.at}: the press landed on Send (attempt ${attempt})`).not.toBeNull();
+        const elapsed = press! - shrunkAt(attempt);
+        expect(Number.isFinite(elapsed) && elapsed >= 0, `${run.at}: the shrink's time is known (attempt ${attempt})`).toBe(true);
+        // Whatever the timing, a press this soon after a move never sends.
+        expect(await asksSent(page), `${run.at}: a press ${elapsed} ms after view A shrank sent something (attempt ${attempt})`).toEqual([]);
+        await expect(pending, `${run.at}: the pending message is still there (attempt ${attempt})`).toHaveCount(1);
+        if (after.scrolls !== start.scrolls) {
+          tries.push(`attempt ${attempt}: the host scrolled, which re-arms Send by itself`);
+        } else if (elapsed >= LANDED_BY_MS) {
+          tries.push(`attempt ${attempt}: the press landed ${elapsed} ms after the shrink, too late to test the re-arm window`);
+        } else {
+          landed = true;
+          run.note(`The press on B's Send ${elapsed} ms after view A shrank ran nothing (attempt ${attempt}${tries.length > 0 ? `; earlier: ${tries.join("; ")}` : ""}).`);
+        }
+        if (!landed) {
+          // Grow A back for another try; the next round waits out the move.
+          expect(await clickIn(0, "#grow"), `${run.at}: view A's grow button was clicked (attempt ${attempt})`).toBe(true);
+        }
+      }
+      expect(landed, `${run.at}: no press on B's Send could be made inside the re-arm window with the page still: ${tries.join("; ")}`).toBe(true);
+      // Once CHIP_ARM_MS has passed since A's move, a press on Send sends once.
+      await page.waitForTimeout(ARMED_AFTER_MS);
+      const armed = await send.boundingBox();
+      expect(armed, `${run.at}: Send has a box`).not.toBeNull();
+      await page.mouse.click(armed!.x + armed!.width / 2, armed!.y + armed!.height / 2);
+      await expect(pending, `${run.at}: the armed press on Send cleared the pending message`).toHaveCount(0);
+      await expect.poll(() => asksSent(page), { message: `${run.at}: the armed press sent the text once`, timeout: 2_000 }).toEqual([`ask-sent:${HARNESS_ASK_TEXT}`]);
+
+      await finishCase(run, 500);
+      expectNoHits(run);
+      expectAttempted(run, CASE, "cross-a");
+      expectAttempted(run, CASE, "cross-b");
+      expect(run.record.asks, `${run.at}: one send, from the armed press`).toEqual([{ surface: expect.any(String), value: `ask-sent:${HARNESS_ASK_TEXT}` }]);
+      expect(run.record.fallbacks, `${run.at}: neither frame fell back`).toEqual([]);
       expectContained(run);
     });
   }

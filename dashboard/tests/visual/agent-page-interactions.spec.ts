@@ -122,15 +122,28 @@ for (const viewport of VIEWPORTS) {
       }
       await expect(page.getByRole("button", { name: "Close expanded view" })).toBeFocused();
       await expect(page.locator("html")).toHaveClass(/\brf-view-expanded\b/);
-      // Tab ten times: focus only ever lands in the view or the dock. "page" is the step
-      // past the last control, after which Tab comes back to the first one, in the view.
+      // Tab until focus reaches the dock: it only ever lands in the view or the dock ("page"
+      // is the step past the last control, after which Tab comes back to the first one, in
+      // the view). The fixture's view holds about 35 controls (three job cards, a compare
+      // table, an approval and a form) before the dock, so the bound is generous.
+      const TAB_BOUND = 120;
       const places: string[] = [];
-      for (let i = 0; i < 10; i++) {
+      while (places.length < TAB_BOUND && places.at(-1) !== "dock") {
         await page.keyboard.press("Tab");
         places.push(await focusPlace(page));
       }
       expect(places.filter((p) => p !== "view" && p !== "dock" && p !== "page"), `focus left the view and the dock: ${JSON.stringify(places)}`).toEqual([]);
-      expect(places, "Tab reached the dock").toContain("dock");
+      expect(places, `Tab reached the dock within ${TAB_BOUND} presses`).toContain("dock");
+      // Shift+Tab from the view's first control (Close): everything before it is inert, so
+      // focus goes past the start of the page and comes in at the dock, its last controls.
+      await page.getByRole("button", { name: "Close expanded view" }).focus();
+      const back: string[] = [];
+      while (back.length < 4 && back.at(-1) !== "dock") {
+        await page.keyboard.press("Shift+Tab");
+        back.push(await focusPlace(page));
+      }
+      expect(back.filter((p) => p !== "dock" && p !== "page"), `Shift+Tab from Close went elsewhere: ${JSON.stringify(back)}`).toEqual([]);
+      expect(back, "Shift+Tab from Close reached the dock").toContain("dock");
     });
 
     test(`the composer takes text while a view is expanded w${viewport.width}`, async ({ page }) => {

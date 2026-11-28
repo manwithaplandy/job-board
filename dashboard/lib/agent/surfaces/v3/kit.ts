@@ -623,7 +623,29 @@ export const KIT_JS: string = `(function () {
     return String(value);
   }
 
-  window.addEventListener("error", function (e) { report(e && e.message ? e.message : "script error"); });
+  /* Polish fix 1 (spec 08 S11): the browser's ResizeObserver loop notification is not a frame
+     error. Chrome, Edge and Firefox fire an error event on the window, with no error object,
+     when a ResizeObserver callback changes layout that another observer must then wait a frame
+     for ("ResizeObserver loop completed with undelivered notifications."; older engines
+     "ResizeObserver loop limit exceeded"). Nothing failed: the late notifications are delivered
+     in the next frame. Any view's own ResizeObserver can trip it, so an event whose error is
+     null or undefined and whose message starts with "ResizeObserver loop" is not reported; every
+     other error event is reported as before. The ErrorEvent getters are taken now, before model
+     code can replace them; an event they cannot read (not an ErrorEvent) is reported. */
+  var errorMessageOf = typeof ErrorEvent === "function" ? getterOf(ErrorEvent.prototype, "message") : null;
+  var errorValueOf = typeof ErrorEvent === "function" ? getterOf(ErrorEvent.prototype, "error") : null;
+  var RO_LOOP = "ResizeObserver loop";
+  function resizeLoopNotice(e) {
+    if (!errorMessageOf || !errorValueOf) return false;
+    try {
+      var message = errorMessageOf(e);
+      return errorValueOf(e) == null && typeof message === "string" && sliceText(message, 0, RO_LOOP.length) === RO_LOOP;
+    } catch (err) { return false; }
+  }
+  window.addEventListener("error", function (e) {
+    if (resizeLoopNotice(e)) return;
+    report(e && e.message ? e.message : "script error");
+  });
   window.addEventListener("unhandledrejection", function (e) { report(errorText(e ? e.reason : null)); });
 
   /* Task 2.7, CI run 2: tell the host at once when this document starts to leave. WebKit does
@@ -849,6 +871,16 @@ export const KIT_JS: string = `(function () {
   var SizeWatch = typeof ResizeObserver === "function" ? ResizeObserver : null;
   var observeSize = SizeWatch ? uncurry(SizeWatch.prototype.observe) : null;
   var disconnectSize = SizeWatch ? uncurry(SizeWatch.prototype.disconnect) : null;
+  /* Polish fix 1 (C1, I1, m1): the chart's SVG height is pinned in CSS px through the CSSOM
+     (which the frame's CSP allows, unlike a style attribute in markup), a width-only redraw
+     swaps the SVG in place, and one chart is kept per element. */
+  var styleOfSvg = typeof SVGElement === "function" ? getterOf(SVGElement.prototype, "style") : null;
+  var setStyleProperty = typeof CSSStyleDeclaration === "function" ? uncurry(CSSStyleDeclaration.prototype.setProperty) : null;
+  var parentOf = getterOf(Node.prototype, "parentNode");
+  var nextSiblingOf = getterOf(Node.prototype, "nextSibling");
+  var chartsOn = typeof WeakMap === "function" ? new WeakMap() : null;
+  var chartOnGet = chartsOn ? uncurry(WeakMap.prototype.get) : null;
+  var chartOnSet = chartsOn ? uncurry(WeakMap.prototype.set) : null;
   function widthOf(el) {
     var w = 0;
     try {
@@ -863,11 +895,11 @@ export const KIT_JS: string = `(function () {
   }
   /* A hidden SVG in the element: its width is the width a chart there gets (the chart's SVG is
      width: 100%), and its text measures label widths with the chart's own classes. */
-  function chartProbe(el) {
+  function chartProbe(el, before) {
     var svg = svgNode("svg", { "class": "jb-chart jb-chart-probe", "aria-hidden": "true" });
     var text = svgNode("text", { x: 0, y: 0, "class": "jb-chart-label" });
     appendTo(svg, text);
-    appendTo(el, svg);
+    if (before) insertInto(el, svg, before); else appendTo(el, svg);
     var width = widthOf(svg);
     var cache = {};
     function measure(s) {
@@ -1001,7 +1033,7 @@ export const KIT_JS: string = `(function () {
     var plan = spec.viz === "sparkline" ? null : labelPlan(labels, step, W, g.measure);
     var band = labelBand(plan, H);
     var BASE = band.base, PLOT = BASE - 12;
-    var svg = svgNode("svg", { viewBox: "0 0 " + textOf(W) + " " + textOf(H), role: "img", "class": "jb-chart", "aria-label": clip(spec.title || "Chart", 80) });
+    var svg = chartSvg(W, H, spec.title);
     appendTo(svg, svgNode("line", { x1: 0, y1: BASE, x2: W, y2: BASE, "class": "jb-chart-axis" }));
     if (spec.viz === "line" || spec.viz === "sparkline") {
       var coords = [];
@@ -1172,19 +1204,28 @@ export const KIT_JS: string = `(function () {
     for (var i = 0; i < series.length; i++) out[out.length] = { name: series[i].name, tone: series[i].tone };
     return out;
   }
-  function chartSvg(w, h, title, onSelect) {
-    return svgNode("svg", { viewBox: "0 0 " + textOf(w) + " " + textOf(h), role: "img", "class": "jb-chart", "aria-label": clip(title || "Chart", 80) });
+  /* Polish fix 1 (C1): the SVG's height is pinned in CSS px, so a width change never changes
+     the chart's height, before or after the redraw it schedules: until the redraw lands, the
+     stale drawing is letterboxed (preserveAspectRatio), not stretched to a new height. */
+  function chartSvg(w, h, title) {
+    var svg = svgNode("svg", { viewBox: "0 0 " + textOf(w) + " " + textOf(h), role: "img", "class": "jb-chart", "aria-label": clip(title || "Chart", 80), preserveAspectRatio: "xMidYMid meet" });
+    if (styleOfSvg && setStyleProperty) {
+      try { setStyleProperty(styleOfSvg(svg), "height", textOf(h) + "px"); } catch (err) { /* height: auto, as before */ }
+    }
+    return svg;
   }
 
   /* hbar: the label column is as wide as the widest label (at most 40% of the chart), the
-     value column as wide as the widest value; labels that do not fit are cut. */
+     value column as wide as the widest value; labels that do not fit are cut. Polish fix 1
+     (m4): a value is never cut (a cut number reads as another number), so the value column
+     always holds the widest formatted value and the bars and labels take what is left. */
   function drawHbar(spec, fmt, onSelect, g) {
     var series = sliceList(chartSeries(spec), 0, 1);
     var pts = series[0].points;
     var W = g.W, BAR_H = 16;
     var rowH = onSelect ? 48 : 28;
     var H = M.max(pts.length, 1) * rowH + 8;
-    var svg = chartSvg(W, H, spec.title, onSelect);
+    var svg = chartSvg(W, H, spec.title);
     var max = 0;
     var labelW = 0;
     var valueW = 0;
@@ -1194,8 +1235,8 @@ export const KIT_JS: string = `(function () {
       valueW = M.max(valueW, g.measure(fmt(pts[i].value)));
     }
     if (max <= 0) max = 1;
-    var LABEL_W = M.min(M.max(labelW + LABEL_GAP, 48), M.max(48, M.round(W * 0.4)));
-    var VALUE_W = M.min(valueW + 8, M.round(W * 0.25));
+    var VALUE_W = valueW + 8;
+    var LABEL_W = M.min(M.max(labelW + LABEL_GAP, 48), M.max(48, M.round(W * 0.4)), M.max(W - VALUE_W, 0));
     for (var r = 0; r < pts.length; r++) {
       var v = M.max(pts[r].value, 0);
       var y = 4 + r * rowH;
@@ -1206,7 +1247,7 @@ export const KIT_JS: string = `(function () {
       var bar = svgNode("rect", { x: LABEL_W, y: fx(by), width: fx(w), height: BAR_H, "class": "jb-chart-mark jb-tone-" + toneOf(pts[r].tone, 0) });
       tip(bar, describePoint(info, fmt));
       appendTo(svg, bar);
-      appendTo(svg, fittedText(LABEL_W + w + 4, by + 12, fmt(pts[r].value), "start", W - LABEL_W - w - 4, g.measure));
+      appendTo(svg, svgText(LABEL_W + w + 4, by + 12, fmt(pts[r].value), "start"));
       if (onSelect) {
         var hit = svgNode("rect", { x: 0, y: fx(y), width: W, height: rowH, "class": "jb-chart-hit" });
         selectable(hit, info, onSelect, fmt);
@@ -1226,7 +1267,7 @@ export const KIT_JS: string = `(function () {
     var plan = labelPlan(cats.labels, step, W, g.measure);
     var band = labelBand(plan, H);
     var BASE = band.base, PLOT = BASE - 12;
-    var svg = chartSvg(W, H, spec.title, onSelect);
+    var svg = chartSvg(W, H, spec.title);
     appendTo(svg, svgNode("line", { x1: 0, y1: BASE, x2: W, y2: BASE, "class": "jb-chart-axis" }));
     var max = 0;
     for (var c = 0; c < n; c++) {
@@ -1273,7 +1314,7 @@ export const KIT_JS: string = `(function () {
     var plan = labelPlan(labels, step, W, g.measure);
     var band = labelBand(plan, H);
     var BASE = band.base, PLOT = BASE - 12;
-    var svg = chartSvg(W, H, spec.title, onSelect);
+    var svg = chartSvg(W, H, spec.title);
     appendTo(svg, svgNode("line", { x1: 0, y1: BASE, x2: W, y2: BASE, "class": "jb-chart-axis" }));
     for (var t = 0; t < series.length; t++) {
       var pts = series[t].points;
@@ -1320,7 +1361,7 @@ export const KIT_JS: string = `(function () {
     /* The y axis sits right of its widest tick label (and of the turned y label, if any). */
     var tickW = M.max(g.measure(fmt(y0)), g.measure(fmt(y1)));
     var W = g.W, H = 160, L = M.max(44, M.round(tickW + 8 + (spec.yLabel ? 16 : 0))), R = W - 8, T = 8, B = 124;
-    var svg = chartSvg(W, H, spec.title, onSelect);
+    var svg = chartSvg(W, H, spec.title);
     function sx(v) { return L + ((v - x0) / (x1 - x0)) * (R - L); }
     function sy(v) { return B - ((v - y0) / (y1 - y0)) * (B - T); }
     appendTo(svg, svgNode("line", { x1: L, y1: B, x2: R, y2: B, "class": "jb-chart-axis" }));
@@ -1360,14 +1401,32 @@ export const KIT_JS: string = `(function () {
     return "M " + at(R, a0) + " A " + R + " " + R + " 0 " + large + " 1 " + at(R, a1) +
       " L " + at(r, a1) + " A " + r + " " + r + " 0 " + large + " 0 " + at(r, a0) + " Z";
   }
-  /* donut: the ring at the left, the keys to its right, each cut to the room left. */
+  /* donut: the ring at the left, the keys to its right, each cut to the room left. Polish fix
+     1 (I2): where that room (W - 196) cannot hold every key with at least four characters of
+     its label and its percentage, the SVG draws no keys and the chart has an HTML legend under
+     the ring instead (chartLegend), which wraps; so a narrow donut never shows bare swatches
+     or keys cut to a letter or two. */
+  var DONUT_KEY_X = 192;
+  function donutKeyText(label, share) {
+    return clip(label, 16) + " " + fmtPercent(share);
+  }
   function drawDonut(spec, fmt, onSelect, g) {
     var series = sliceList(chartSeries(spec), 0, 1);
     var pts = series[0].points;
     var W = g.W, H = 160, CX = 80, CY = 80, R = 72, RI = 44;
-    var svg = chartSvg(W, H, spec.title, onSelect);
+    var svg = chartSvg(W, H, spec.title);
     var total = 0;
     for (var i = 0; i < pts.length; i++) if (pts[i].value > 0) total += pts[i].value;
+    var room = W - DONUT_KEY_X - 4;
+    var keysFit = true;
+    var legend = [];
+    for (var m = 0, shown = 0; m < pts.length && shown < 8; m++) {
+      if (!(pts[m].value > 0) || total <= 0) continue;
+      shown += 1;
+      var label = clip(pts[m].label, 16);
+      var shortest = (label.length > 4 ? cutAt(label, 4) + "\\u2026" : label) + " " + fmtPercent(pts[m].value / total);
+      if (g.measure(shortest) > room) keysFit = false;
+    }
     var a = -M.PI / 2;
     var keys = 0;
     for (var k = 0; k < pts.length; k++) {
@@ -1381,17 +1440,19 @@ export const KIT_JS: string = `(function () {
       if (onSelect) selectable(slice, info, onSelect, fmt);
       appendTo(svg, slice);
       a = b;
-      if (keys < 8) {
+      if (!keysFit) {
+        legend[legend.length] = { name: pts[k].label + " " + fmtPercent(v / total), tone: tone };
+      } else if (keys < 8) {
         var ky = 20 + keys * 18;
         appendTo(svg, svgNode("rect", { x: 176, y: ky - 9, width: 10, height: 10, rx: 2, "class": "jb-chart-key jb-tone-" + tone }));
-        appendTo(svg, fittedText(192, ky, clip(pts[k].label, 16) + " " + fmtPercent(v / total), "start", W - 192 - 4, g.measure));
+        appendTo(svg, fittedText(DONUT_KEY_X, ky, donutKeyText(pts[k].label, v / total), "start", room, g.measure));
         keys += 1;
       }
     }
     if (total <= 0) appendTo(svg, svgNode("circle", { cx: CX, cy: CY, r: (R + RI) / 2, "class": "jb-chart-ring" }));
     appendTo(svg, svgText(CX, CY + 5, fmt(total), "middle", "jb-chart-total"));
     var table = seriesTable(series, chartCategories(series), fmt);
-    return { svg: svg, legend: null, head: table.head, rows: table.rows };
+    return { svg: svg, legend: legend.length > 0 ? legend : null, head: table.head, rows: table.rows };
   }
 
   function chartTable(title, head, rows) {
@@ -1442,7 +1503,7 @@ export const KIT_JS: string = `(function () {
     var fmt = formatterOf(spec.format);
     var onSelect = typeof spec.onSelect === "function" ? spec.onSelect : null;
     clearNode(el);
-    var probe = chartProbe(el);
+    var probe = chartProbe(el, null);
     var g = { W: chartWidthFor(probe.width), measure: probe.measure };
     var out;
     var picks = [];
@@ -1455,10 +1516,43 @@ export const KIT_JS: string = `(function () {
     }
     var title = clip(spec.title || "Chart", 80);
     appendTo(el, out.svg);
-    if (out.legend) appendTo(el, chartLegend(out.legend));
+    var legend = out.legend ? chartLegend(out.legend) : null;
+    if (legend) appendTo(el, legend);
     if (picks.length > 0) appendTo(el, picksRow(title, picks));
     appendTo(el, chartTable(title, out.head, out.rows));
-    return { svg: out.svg, W: g.W, measured: probe.width > 0 };
+    return { svg: out.svg, legend: legend, W: g.W, measured: probe.width > 0 };
+  }
+  /* Polish fix 1 (I1): a redraw for a new width replaces the SVG alone. The legend, the 44px
+     button row and the hidden table do not depend on the width, so they stay the same
+     elements, and a button that has focus (or is being pressed) keeps it. The one exception is
+     the donut's HTML legend, which is there only while the keys do not fit beside the ring: it
+     is added or removed as the width calls for. Where the drawn SVG is no longer el's child
+     (model code moved it), the chart is drawn afresh. */
+  function redrawForWidth(el, spec, drawn) {
+    if (parentOf(drawn.svg) !== el || (drawn.legend && parentOf(drawn.legend) !== el)) return drawChart(el, spec);
+    spec = spec && typeof spec === "object" ? spec : {};
+    var fmt = formatterOf(spec.format);
+    var onSelect = typeof spec.onSelect === "function" ? spec.onSelect : null;
+    var probe = chartProbe(el, drawn.svg);
+    var g = { W: chartWidthFor(probe.width), measure: probe.measure };
+    var out;
+    chartPicks = null;
+    try {
+      out = drawOne(spec, fmt, onSelect, g);
+    } finally {
+      removeFrom(el, probe.svg);
+    }
+    insertInto(el, out.svg, drawn.svg);
+    removeFrom(el, drawn.svg);
+    var legend = drawn.legend;
+    if (out.legend && !legend) {
+      legend = chartLegend(out.legend);
+      insertInto(el, legend, nextSiblingOf(out.svg));
+    } else if (!out.legend && legend) {
+      removeFrom(el, legend);
+      legend = null;
+    }
+    return { svg: out.svg, legend: legend, W: g.W, measured: probe.width > 0 };
   }
   function drawOne(spec, fmt, onSelect, g) {
     var out;
@@ -1473,27 +1567,53 @@ export const KIT_JS: string = `(function () {
   /* host.chart(el, spec) -> { update(spec), destroy() }: update redraws into the same
      element; destroy empties it, and nothing draws there afterwards. Polish wave, item A: a
      ResizeObserver on el redraws the chart when the width it would get changes (or first
-     becomes measurable), and destroy disconnects it. A redraw keeps the chart's height, so it
-     cannot start a loop of resizes. */
+     becomes measurable), and destroy disconnects it.
+     Polish fix 1 (C1): the redraw never runs inside the observer's callback, where changing
+     layout makes the browser raise its "ResizeObserver loop" error. The callback only
+     schedules one redraw per chart with the kit's captured timer; notifications that arrive
+     before it runs add nothing. When it runs it checks again that the chart is live and that
+     the width it would get has changed, then draws the current spec (an update() in between
+     is drawn). The SVG's height is pinned (chartSvg), so neither the width change nor the
+     redraw changes the chart's height.
+     m1: one chart per element. host.chart on an element that already has one retires the
+     earlier chart (its observer is disconnected, its handle does nothing more), as a view that
+     draws again into the same element without destroy() expects. */
   var NO_CHART = freeze({ update: function () {}, destroy: function () {} });
   function chart(el, spec) {
     if (!el || typeof el.appendChild !== "function" || !isElement(el)) return NO_CHART;
+    if (chartsOn) {
+      var earlier;
+      try { earlier = chartOnGet(chartsOn, el); } catch (err) { earlier = null; }
+      if (typeof earlier === "function") earlier();
+    }
     var live = true;
     var current = spec;
     var drawn = drawChart(el, current);
     var watcher = null;
+    var queued = false;
+    function retire() {
+      live = false;
+      if (watcher) { try { disconnectSize(watcher); } catch (err) { /* nothing more to do */ } }
+    }
+    function resized() {
+      queued = false;
+      if (!live) return;
+      var w = widthOf(drawn.svg);
+      if (w <= 0) return;
+      if (drawn.measured && chartWidthFor(w) === drawn.W) return;
+      try { drawn = redrawForWidth(el, current, drawn); } catch (err) { report(errorText(err)); }
+    }
     if (SizeWatch) {
       try {
         watcher = new SizeWatch(function () {
-          if (!live) return;
-          var w = widthOf(drawn.svg);
-          if (w <= 0) return;
-          if (drawn.measured && chartWidthFor(w) === drawn.W) return;
-          try { drawn = drawChart(el, current); } catch (err) { report(errorText(err)); }
+          if (!live || queued) return;
+          queued = true;
+          try { queueTask(resized, 0); } catch (err) { queued = false; }
         });
         observeSize(watcher, el);
       } catch (err) { watcher = null; }
     }
+    if (chartsOn) { try { chartOnSet(chartsOn, el, retire); } catch (err) { /* one chart per call, as before */ } }
     return freeze({
       update: function (next) {
         if (!live) return;
@@ -1501,8 +1621,8 @@ export const KIT_JS: string = `(function () {
         drawn = drawChart(el, current);
       },
       destroy: function () {
-        live = false;
-        if (watcher) { try { disconnectSize(watcher); } catch (err) { /* nothing more to do */ } }
+        if (!live) return;
+        retire();
         clearNode(el);
       }
     });

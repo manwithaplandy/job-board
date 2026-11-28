@@ -1051,7 +1051,18 @@ describe("host.chart: bar, line and sparkline as before PR 5", () => {
     const svg = el.querySelector("svg");
     // Today the SVG is the element's first child and the drawing.
     expect(el.firstElementChild).toBe(svg);
-    return svg ? svg.outerHTML : "";
+    if (!svg) return "";
+    // Polish fix 1 (C1): every chart SVG now has its height pinned in CSS px (to its viewBox
+    // height) and says how a stale drawing is fitted, so a width change cannot change its
+    // height before the redraw lands. At the reference width that is the height it always had,
+    // so the drawing is unchanged: the two additions are checked here and left out of the
+    // snapshots, which stay byte for byte the pre-PR 5 markup.
+    expect(svg.getAttribute("preserveAspectRatio")).toBe("xMidYMid meet");
+    expect(svg.getAttribute("style")).toBe(`height: ${svg.getAttribute("viewBox")!.split(" ")[3]}px;`);
+    const copy = svg.cloneNode(true) as Element;
+    copy.removeAttribute("preserveAspectRatio");
+    copy.removeAttribute("style");
+    return copy.outerHTML;
   }
   const POINTS = [
     { label: "<b>a</b>", value: 2 },
@@ -1646,7 +1657,7 @@ describe("host.chart: drawn at the width it is given", () => {
     return rows;
   }
 
-  test.each(KINDS.flatMap(([viz, rest]) => WIDTHS.map((width) => [viz, width, rest] as const)))(
+  test.each(KINDS.flatMap(([viz, rest]) => [160, 200, ...WIDTHS].map((width) => [viz, width, rest] as const)))(
     "%s at %ipx: the viewBox is the element's width, so nothing is scaled, and its height does not depend on the width",
     (viz, width, rest) => {
       const { svg } = drawAt(width, { viz, title: "Stages", ...rest });
@@ -1716,19 +1727,23 @@ describe("host.chart: drawn at the width it is given", () => {
     expect(textWidth(labels[1].childNodes[0].textContent!)).toBeLessThanOrEqual(Math.round(288 * 0.4) - 8);
   });
 
-  test("a resize redraws at the new width, the same width does not redraw, and destroy disconnects", () => {
+  // Polish fix 1 (C1): the observer's callback only schedules the redraw, on the kit's captured
+  // setTimeout; this kit took the real one, so each fire is followed by a real tick.
+  test("a resize redraws at the new width, the same width does not redraw, and destroy disconnects", async () => {
     const picked: string[] = [];
     const { el, handle, svg } = drawAt(968, { viz: "bar", title: "Stages", points: SIX, onSelect: (p: { label: string }) => picked.push(p.label) });
     const first = svg();
     const ro = FakeResizeObserver.watching(el)!;
     expect(ro).toBeDefined();
     ro.fire();
+    await tick();
     expect(svg()).toBe(first);
     el.setAttribute("data-test-width", "288");
     ro.fire();
+    await tick();
     expect(svg()).not.toBe(first);
     expect(viewBox(svg())[2]).toBe(288);
-    // The accessible parts are drawn again with it: the 44px button row and the hidden table.
+    // The accessible parts stay with it: the 44px button row and the hidden table.
     const buttons = [...el.querySelectorAll<HTMLButtonElement>(".jb-chart-picks button")];
     expect(buttons).toHaveLength(6);
     buttons[3].click();
@@ -1740,16 +1755,48 @@ describe("host.chart: drawn at the width it is given", () => {
     expect(viewBox(svg())[2]).toBe(288);
     el.setAttribute("data-test-width", "600");
     ro.fire();
+    await tick();
     expect(viewBox(svg())[2]).toBe(600);
     expect(svg().getAttribute("aria-label")).toBe("Two");
     handle.destroy();
     expect(ro.disconnected).toBe(true);
     expect(el.childNodes).toHaveLength(0);
     ro.fire();
+    await tick();
     expect(el.childNodes).toHaveLength(0);
   });
 
-  test("an element that is not laid out yet gets the 320 drawing, and the real width once it has one", () => {
+  // Polish fix 1 (I1): a width-only redraw swaps the SVG alone; the legend, the button row and
+  // the hidden table are the same elements, so a focused pick button keeps focus.
+  test("a resize redraw keeps the same pick buttons, legend and table, and the focused button keeps focus", async () => {
+    const picked: string[] = [];
+    const { el, svg } = drawAt(968, { viz: "stacked", title: "Applications", onSelect: (p: { label: string }) => picked.push(p.label), series: [
+      { name: "Remote", points: [{ label: "Oct", value: 3 }, { label: "Nov", value: 5 }] },
+      { name: "On site", points: [{ label: "Oct", value: 1 }, { label: "Nov", value: 2 }] },
+    ] });
+    const first = svg();
+    const buttons = [...el.querySelectorAll<HTMLButtonElement>(".jb-chart-picks button")];
+    const legend = el.querySelector(".jb-chart-legend");
+    const table = el.querySelector("table.jb-sr-only");
+    expect(buttons).toHaveLength(4);
+    buttons[2].focus();
+    expect(document.activeElement).toBe(buttons[2]);
+    el.setAttribute("data-test-width", "288");
+    FakeResizeObserver.watching(el)!.fire();
+    await tick();
+    expect(svg()).not.toBe(first);
+    expect(viewBox(svg())[2]).toBe(288);
+    expect([...el.querySelectorAll(".jb-chart-picks button")]).toEqual(buttons);
+    expect(el.querySelector(".jb-chart-legend")).toBe(legend);
+    expect(el.querySelector("table.jb-sr-only")).toBe(table);
+    expect(document.activeElement).toBe(buttons[2]);
+    // The order is unchanged: the SVG first, then the legend, the buttons and the table.
+    expect([...el.children].map((c) => c.localName)).toEqual(["svg", "ul", "div", "table"]);
+    buttons[2].click();
+    expect(picked).toEqual(["Nov"]);
+  });
+
+  test("an element that is not laid out yet gets the 320 drawing, and the real width once it has one", async () => {
     const { el, svg } = drawAt(0, { viz: "stacked", title: "Applications", series: [
       { name: "Remote", points: [{ label: "Oct", value: 3 }, { label: "Nov", value: 5 }] },
       { name: "On site", points: [{ label: "Oct", value: 1 }, { label: "Nov", value: 2 }] },
@@ -1757,12 +1804,91 @@ describe("host.chart: drawn at the width it is given", () => {
     expect(viewBox(svg())[2]).toBe(320);
     const ro = FakeResizeObserver.watching(el)!;
     ro.fire();
+    await tick();
     expect(viewBox(svg())[2]).toBe(320);
     el.setAttribute("data-test-width", "704");
     ro.fire();
+    await tick();
     expect(viewBox(svg())[2]).toBe(704);
-    // The legend is drawn again with it.
+    // The legend stays with it.
     expect([...el.querySelectorAll(".jb-chart-legend li")].map((li) => li.textContent)).toEqual(["Remote", "On site"]);
+  });
+
+  // Polish fix 1 (C1): the SVG's height is pinned in CSS px at every width, so a width change
+  // cannot change it before the redraw lands; a stale drawing is letterboxed.
+  test.each(KINDS)("%s pins its SVG's height to its viewBox height and letterboxes a stale drawing", (viz, rest) => {
+    for (const width of [160, 288, 968]) {
+      const { svg } = drawAt(width, { viz, title: "Stages", ...rest });
+      expect(svg().getAttribute("preserveAspectRatio")).toBe("xMidYMid meet");
+      expect((svg() as SVGSVGElement).style.height).toBe(`${viewBox(svg())[3]}px`);
+    }
+  });
+
+  // m1: one chart per element.
+  test("host.chart again on the same element retires the earlier chart: its observer is disconnected and its handle does nothing", async () => {
+    const { el, handle } = drawAt(968, { viz: "bar", title: "First", points: SIX });
+    const firstRo = FakeResizeObserver.watching(el)!;
+    const second = host().chart(el, { viz: "bar", title: "Second", points: SIX.slice(0, 3) }) as ChartHandle;
+    const secondRo = FakeResizeObserver.watching(el)!;
+    expect(secondRo).not.toBe(firstRo);
+    expect(firstRo.disconnected).toBe(true);
+    expect(secondRo.disconnected).toBe(false);
+    expect(el.querySelectorAll("svg")).toHaveLength(1);
+    // The first handle no longer draws into or empties the element.
+    handle.update({ viz: "bar", title: "Stale", points: SIX });
+    handle.destroy();
+    expect(el.querySelector("svg")!.getAttribute("aria-label")).toBe("Second");
+    el.setAttribute("data-test-width", "500");
+    firstRo.fire();
+    secondRo.fire();
+    await tick();
+    expect(viewBox(el.querySelector("svg")!)[2]).toBe(500);
+    expect(el.querySelector("svg")!.getAttribute("aria-label")).toBe("Second");
+    second.destroy();
+    expect(secondRo.disconnected).toBe(true);
+    expect(el.childNodes).toHaveLength(0);
+  });
+
+  // I2: a donut too narrow for its keys beside the ring draws none in the SVG and gets the
+  // HTML legend under it, which wraps; with room again the keys come back into the SVG.
+  test("a narrow donut moves its keys to the HTML legend, and a resize moves them back", async () => {
+    const { el, svg } = drawAt(200, { viz: "donut", title: "Stages", points: SIX });
+    expect(svg().querySelectorAll(".jb-chart-key")).toHaveLength(0);
+    expect([...el.querySelectorAll(".jb-chart-legend li")].map((li) => li.textContent)).toEqual(
+      ["Preparing 9%", "Ready 16%", "Applied 38%", "Interviewing 13%", "Offer 3%", "Closed 22%"],
+    );
+    expect([...el.querySelectorAll(".jb-chart-legend .jb-chart-swatch")].map((s) => s.className)).toEqual(
+      ["stage", "good", "amber", "violet", "bad", "muted"].map((t) => `jb-chart-swatch jb-tone-${t}`),
+    );
+    el.setAttribute("data-test-width", "600");
+    FakeResizeObserver.watching(el)!.fire();
+    await tick();
+    expect(svg().querySelectorAll(".jb-chart-key")).toHaveLength(6);
+    expect(el.querySelector(".jb-chart-legend")).toBeNull();
+    el.setAttribute("data-test-width", "160");
+    FakeResizeObserver.watching(el)!.fire();
+    await tick();
+    expect(svg().querySelectorAll(".jb-chart-key")).toHaveLength(0);
+    expect(el.querySelectorAll(".jb-chart-legend li")).toHaveLength(6);
+    expect([...el.children].map((c) => c.localName)).toEqual(["svg", "ul", "table"]);
+  });
+
+  test("a donut wide enough for every key at four characters and its share keeps them in the SVG", () => {
+    const { el, svg } = drawAt(288, { viz: "donut", title: "Stages", points: SIX });
+    expect(svg().querySelectorAll(".jb-chart-key")).toHaveLength(6);
+    expect(el.querySelector(".jb-chart-legend")).toBeNull();
+  });
+
+  // m4: an hbar value is never cut; the value column holds the widest formatted value.
+  test.each([160, 200, 288])("hbar at %ipx shows every value in full, inside the chart", (width) => {
+    const points = [{ label: "Applied", value: 1234567 }, { label: "Interviewing", value: 3 }, { label: "Offer", value: 980000 }];
+    const { svg } = drawAt(width, { viz: "hbar", title: "Roles", points });
+    const values = [...svg().querySelectorAll("text.jb-chart-label")].filter((t) => t.getAttribute("x") !== "0.0");
+    expect(values.map((t) => t.textContent)).toEqual(["1,234,567", "3", "980,000"]);
+    for (const t of values) {
+      expect(t.querySelector("title")).toBeNull();
+      expect(Number(t.getAttribute("x")) + textWidth(t.textContent!)).toBeLessThanOrEqual(width + 0.05);
+    }
   });
 
   test("the measuring probe never stays in the element", () => {
@@ -1775,8 +1901,8 @@ describe("host.chart: drawn at the width it is given", () => {
 // PR 6 Task 6.2: where navigator.userActivation is missing, the kit's own flag. A second kit
 // runs here against its own window stand-in (no userActivation, no Trusted Types, its own
 // port) with fake timers in place when it starts, so the setTimeout it takes is the fake one
-// and the 1,000 ms can be stepped. It is the last block of the file: its listeners on the
-// real window (link guard, Escape, the flag) stay for the rest of the run.
+// and the 1,000 ms can be stepped. It runs after every block that uses the first kit: its
+// listeners on the real window (link guard, Escape, the flag) stay for the rest of the run.
 describe("host.ask without navigator.userActivation", () => {
   const received: unknown[] = [];
   let ownPort: MessagePort | null = null;
@@ -1895,5 +2021,170 @@ describe("host.ask without navigator.userActivation", () => {
     expect(ownHost!.ask("escape")).toBe(false);
     await flush();
     expect(asks()).toEqual(["keydown", "mousedown", "pointerdown", "touchend"].map((text) => ({ type: "ask", text })));
+  });
+});
+
+// Polish fix 1 (C1, spec 08 S9.5 and S11). Kits started here, each against its own window
+// stand-in and port, with fake timers in place when they start, so the setTimeout they take
+// is the fake one and a scheduled chart redraw can be stepped. Each kit reports one error at
+// most, so the error cases that must report each get a kit of their own. Every kit's error
+// listener is on the real window, so an error event reaches all of them; only the kit whose
+// port a test reads counts.
+describe("deferred chart redraws and the ResizeObserver loop notification (polish fix 1)", () => {
+  interface OwnKit {
+    host: KitHost;
+    received: unknown[];
+    errors(): unknown[];
+    close(): void;
+  }
+  const kits: OwnKit[] = [];
+  async function flush(rounds = 5) {
+    for (let i = 0; i < rounds; i++) await new Promise<void>((r) => setImmediate(r));
+  }
+  function startKit(): OwnKit {
+    const received: unknown[] = [];
+    let ownPort: MessagePort | null = null;
+    const ownShadow: Record<string | symbol, unknown> = { navigator: {}, trustedTypes: undefined };
+    const ownWindow = new Proxy(ownShadow, {
+      get(target, key) {
+        return Object.prototype.hasOwnProperty.call(target, key) ? target[key] : Reflect.get(globalThis, key);
+      },
+      getPrototypeOf() {
+        return Object.getPrototypeOf(globalThis);
+      },
+    });
+    const ownParent = {
+      postMessage(_data: unknown, _origin: string, transfer?: MessagePort[]) {
+        if (ownPort === null && transfer?.length === 1) {
+          ownPort = transfer[0];
+          ownPort.onmessage = (m) => received.push(m.data);
+        }
+      },
+    };
+    new Function("parent", "window", KIT_JS)(ownParent, ownWindow);
+    const h: unknown = Reflect.get(ownWindow, "host");
+    if (!h || typeof h !== "object") throw new Error("no host");
+    const kit: OwnKit = {
+      host: h as KitHost, // test-only view of the kit's global
+      received,
+      errors: () => received.filter((m) => m && typeof m === "object" && "type" in m && m.type === "error"),
+      close: () => ownPort?.close(),
+    };
+    kits.push(kit);
+    return kit;
+  }
+  let kit: OwnKit;
+  beforeAll(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    kit = startKit();
+  });
+  afterAll(() => {
+    vi.useRealTimers();
+    for (const k of kits) k.close();
+  });
+
+  const SIX = [
+    { label: "Preparing", value: 3 },
+    { label: "Ready", value: 5 },
+    { label: "Applied", value: 12 },
+    { label: "Interviewing", value: 4 },
+    { label: "Offer", value: 1 },
+    { label: "Closed", value: 7 },
+  ];
+  const widthOf = (svg: Element | null) => Number(svg!.getAttribute("viewBox")!.split(" ")[2]);
+  function drawAt(width: number) {
+    document.body.innerHTML = `<div id="deferred" data-test-width="${width}"></div>`;
+    const el = document.getElementById("deferred")!;
+    const handle = kit.host.chart(el, { viz: "bar", title: "Stages", points: SIX }) as ChartHandle;
+    const ro = FakeResizeObserver.watching(el)!;
+    return { el, handle, ro, svg: () => el.querySelector("svg.jb-chart") };
+  }
+
+  test("the observer's callback does not redraw; the redraw comes on the kit's timer, once for several notifications", () => {
+    const { el, ro, svg } = drawAt(968);
+    const first = svg();
+    // Counts the chart SVGs put into the element (the measuring probe aside).
+    const watch = new MutationObserver(() => {});
+    watch.observe(el, { childList: true });
+    el.setAttribute("data-test-width", "288");
+    ro.fire();
+    ro.fire();
+    ro.fire();
+    // Nothing changed inside the callbacks.
+    expect(svg()).toBe(first);
+    expect(widthOf(svg())).toBe(968);
+    vi.advanceTimersByTime(0);
+    expect(svg()).not.toBe(first);
+    expect(widthOf(svg())).toBe(288);
+    const added = watch.takeRecords().flatMap((r) => [...r.addedNodes]).filter((n) => (n as Element).localName === "svg" && !(n as Element).classList.contains("jb-chart-probe"));
+    expect(added).toHaveLength(1);
+    watch.disconnect();
+    // Nothing else is waiting.
+    const now = svg();
+    vi.advanceTimersByTime(1_000);
+    expect(svg()).toBe(now);
+  });
+
+  test("the scheduled redraw re-checks the width: a notification with no width change draws nothing", () => {
+    const { ro, svg } = drawAt(500);
+    const first = svg();
+    ro.fire();
+    vi.advanceTimersByTime(0);
+    expect(svg()).toBe(first);
+  });
+
+  test("update() while a redraw is waiting: the redraw draws the updated spec", () => {
+    const { el, ro, handle, svg } = drawAt(968);
+    el.setAttribute("data-test-width", "400");
+    ro.fire();
+    handle.update({ viz: "bar", title: "Updated", points: SIX.slice(0, 2) });
+    vi.advanceTimersByTime(0);
+    expect(widthOf(svg())).toBe(400);
+    expect(svg()!.getAttribute("aria-label")).toBe("Updated");
+    expect(svg()!.querySelectorAll("rect.jb-chart-bar")).toHaveLength(2);
+  });
+
+  test("destroy() while a redraw is waiting: the redraw does nothing", () => {
+    const { el, ro, handle } = drawAt(968);
+    el.setAttribute("data-test-width", "288");
+    ro.fire();
+    handle.destroy();
+    expect(el.childNodes).toHaveLength(0);
+    vi.advanceTimersByTime(0);
+    expect(el.childNodes).toHaveLength(0);
+    // And a late notification after destroy schedules nothing.
+    ro.fire();
+    vi.advanceTimersByTime(0);
+    expect(el.childNodes).toHaveLength(0);
+  });
+
+  test("the browser's ResizeObserver loop notification (no error object) posts no error", async () => {
+    window.dispatchEvent(new ErrorEvent("error", { message: "ResizeObserver loop completed with undelivered notifications.", error: null }));
+    window.dispatchEvent(new ErrorEvent("error", { message: "ResizeObserver loop limit exceeded" }));
+    await flush();
+    expect(kit.errors()).toEqual([]);
+  });
+
+  test("an error event that carries an Error is reported, even with the same message", async () => {
+    window.dispatchEvent(new ErrorEvent("error", {
+      message: "ResizeObserver loop completed with undelivered notifications.",
+      error: new Error("ResizeObserver loop completed with undelivered notifications."),
+    }));
+    await flush();
+    expect(kit.errors()).toEqual([{ type: "error", message: "ResizeObserver loop completed with undelivered notifications." }]);
+  });
+
+  test("any other error with no error object is still reported", async () => {
+    const other = startKit();
+    window.dispatchEvent(new ErrorEvent("error", { message: "Script error." }));
+    await flush();
+    expect(other.errors()).toEqual([{ type: "error", message: "Script error." }]);
+  });
+
+  test("a thrown error is still reported", async () => {
+    const other = startKit();
+    window.dispatchEvent(new ErrorEvent("error", { message: "Uncaught TypeError: x is not a function", error: new TypeError("x is not a function") }));
+    await flush();
+    expect(other.errors()).toEqual([{ type: "error", message: "Uncaught TypeError: x is not a function" }]);
   });
 });

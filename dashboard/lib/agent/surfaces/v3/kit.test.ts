@@ -6,6 +6,9 @@ import { KIT_TOKENS, KIT_TOKEN_NAMES } from "@/lib/agent/surfaces/v3/kitTokens";
 import { parseThemeTokens } from "@/lib/agent/surfaces/v3/themeTokens";
 import { buildSandboxDocument, checkV3Static } from "@/lib/agent/surfaces/v3/document";
 
+/** The kit's own cap: it is not counted against the model's 60,000 bytes (spec 08 S9). */
+const KIT_BYTES_BUDGET = 120_000;
+
 const GLOBALS_CSS = readFileSync(join(__dirname, "../../../../app/globals.css"), "utf8");
 
 function varsUsed(text: string): string[] {
@@ -20,6 +23,22 @@ describe("variant 3 kit tokens", () => {
       expect({ token: n, value: KIT_TOKENS.light[n] }).toEqual({ token: n, value: app!.light[n] });
       // A token the dark block does not restate keeps its light value.
       expect({ token: n, value: KIT_TOKENS.dark[n] }).toEqual({ token: n, value: app!.dark[n] ?? app!.light[n] });
+    }
+  });
+
+  // PR 5 Task 5.1 (spec 08 S9.1): the tokens a rich view needs, checked by the parity test above.
+  test("the kit carries the S9.1 tokens, light and dark, equal to app/globals.css", () => {
+    const app = parseThemeTokens(GLOBALS_CSS)!;
+    const added = [
+      "--accent-border", "--success-border", "--warning-border", "--danger-border", "--font-size-heading",
+      "--elevation-card", "--shadow-popover", "--motion-fast", "--ease-standard", "--control-height-compact",
+    ];
+    const names: readonly string[] = KIT_TOKEN_NAMES;
+    const kit = parseThemeTokens(KIT_CSS)!;
+    for (const n of added) {
+      expect({ token: n, listed: names.includes(n) }).toEqual({ token: n, listed: true });
+      expect({ token: n, light: kit.light[n] }).toEqual({ token: n, light: app.light[n] });
+      expect({ token: n, dark: kit.dark[n] }).toEqual({ token: n, dark: app.dark[n] ?? app.light[n] });
     }
   });
 
@@ -41,6 +60,64 @@ describe("variant 3 kit tokens", () => {
   });
 });
 
+// PR 5 Task 5.2 (spec 08 S9.3): layout and text helpers, all classes (the CSP refuses style="").
+const S93_CLASSES = [
+  "jb-stack", "jb-row", "jb-gap-1", "jb-gap-2", "jb-gap-3", "jb-gap-4", "jb-gap-5", "jb-gap-6",
+  "jb-grid", "jb-cols-2", "jb-cols-3", "jb-split", "jb-toolbar", "jb-h1", "jb-h2", "jb-h3",
+  "jb-stat", "jb-stat__value", "jb-stat__label", "jb-divider", "jb-scroll-x", "jb-table",
+  "jb-timeline", "jb-timeline__item", "jb-meter", "jb-meter__fill", "jb-hidden",
+  "jb-card", "jb-badge", "jb-muted", "jb-secondary", "jb-small", "jb-caption", "jb-success", "jb-warning", "jb-danger", "jb-accent", "jb-chart",
+] as const;
+
+/** The body of the one block that starts at `at` (the index of its opening brace), braces balanced. */
+function blockAt(css: string, at: number): string {
+  let depth = 0;
+  for (let i = at; i < css.length; i++) {
+    if (css[i] === "{") depth += 1;
+    if (css[i] === "}" && --depth === 0) return css.slice(at + 1, i);
+  }
+  throw new Error("unbalanced block");
+}
+
+/** Every rule as [selectors, body], read from flat CSS (no nested blocks). */
+function rules(css: string): Array<[string[], string]> {
+  return [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => [m[1].split(",").map((x) => x.trim()), m[2]]);
+}
+
+describe("variant 3 kit classes (S9.3)", () => {
+  test("KIT_CSS defines every class in the S9.3 table", () => {
+    const outside = KIT_CSS.replace(/@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, "");
+    const selectors = rules(outside).flatMap(([sel]) => sel);
+    for (const c of S93_CLASSES) {
+      const found = selectors.some((sel) => new RegExp(`\\.${c}(?![\\w-])`).test(sel));
+      expect({ class: c, defined: found }).toEqual({ class: c, defined: true });
+    }
+  });
+
+  test("one @media (max-width: 520px) block sets one column for the layout classes", () => {
+    const at = [...KIT_CSS.matchAll(/@media \(max-width: 520px\)\s*\{/g)];
+    expect(at).toHaveLength(1);
+    const body = blockAt(KIT_CSS, at[0].index! + at[0][0].length - 1);
+    const inside = rules(body);
+    const oneColumn = (cls: string) =>
+      inside.some(([sel, decl]) =>
+        sel.includes(`.${cls}`) && (/grid-template-columns:\s*(?:1fr|minmax\(0, 1fr\))\s*;/.test(decl) || /flex-direction:\s*column\s*;/.test(decl)),
+      );
+    for (const c of ["jb-row", "jb-cols-2", "jb-cols-3", "jb-split", "jb-grid"]) {
+      expect({ class: c, oneColumn: oneColumn(c) }).toEqual({ class: c, oneColumn: true });
+    }
+  });
+
+  test("the headings are 20, 18 and 16px at weight 700", () => {
+    const all = rules(KIT_CSS.replace(/@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, ""));
+    for (const [cls, px] of [["jb-h1", 20], ["jb-h2", 18], ["jb-h3", 16]] as const) {
+      const decl = all.filter(([sel]) => sel.includes(`.${cls}`)).map(([, body]) => body).join("");
+      expect(decl, cls).toMatch(new RegExp(`font-size: ${px}px;`));
+      expect(decl, cls).toMatch(/font-weight: 700;/);
+    }
+  });
+});
+
 describe("variant 3 kit script", () => {
   test("KIT_JS contains no URL and no reference to parent other than postMessage", () => {
     for (const text of [KIT_JS, KIT_CSS]) {
@@ -58,8 +135,17 @@ describe("variant 3 kit script", () => {
   });
 
   test("the kit itself passes the variant 3 static checks and the document builder", () => {
-    expect(checkV3Static(`<style>${KIT_CSS}</style><script>${KIT_JS}</script>`)).toEqual([]);
+    // Spec 08 S9: the kit is injected by the host and does not count toward
+    // V3_LIMITS.maxBytes, so the model's byte cap is the one rule not applied to it (PR 5;
+    // the kit's own budget is the next test). Every other rule is.
+    const errors = checkV3Static(`<style>${KIT_CSS}</style><script>${KIT_JS}</script>`);
+    expect(errors.filter((e) => !/^html: \d+ bytes is over the \d+ byte cap$/.test(e))).toEqual([]);
     expect(() => buildSandboxDocument({ html: "<p>x</p>", nonce: "AAAAAAAAAAAAAAAAAAAAAAAA", kitJs: KIT_JS, kitCss: KIT_CSS })).not.toThrow();
+  });
+
+  test("the kit stays within its own size budget (PR 5)", () => {
+    const bytes = new TextEncoder().encode(KIT_CSS + KIT_JS).length;
+    expect(bytes).toBeLessThan(KIT_BYTES_BUDGET);
   });
 
   test("the ready message is posted before any script of the document can run", () => {

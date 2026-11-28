@@ -145,8 +145,216 @@ jb-field input {
 .jb-chart-label { fill: var(--text-secondary); font-size: var(--font-size-small); }
 `;
 
+// PR 5 (spec 08 S9.5): the new chart kinds' marks, tones, legend and selectable targets.
+const CHART_CSS = `
+.jb-chart .jb-tone-stage { fill: var(--chart-stage); }
+.jb-chart .jb-tone-good { fill: var(--chart-good); }
+.jb-chart .jb-tone-bad { fill: var(--chart-bad); }
+.jb-chart .jb-tone-amber { fill: var(--chart-amber); }
+.jb-chart .jb-tone-violet { fill: var(--chart-violet); }
+.jb-chart .jb-tone-muted { fill: var(--chart-muted); }
+.jb-chart .jb-chart-line { fill: none; stroke: var(--chart-stage); stroke-width: 2; }
+.jb-chart .jb-chart-line.jb-tone-good { stroke: var(--chart-good); }
+.jb-chart .jb-chart-line.jb-tone-bad { stroke: var(--chart-bad); }
+.jb-chart .jb-chart-line.jb-tone-amber { stroke: var(--chart-amber); }
+.jb-chart .jb-chart-line.jb-tone-violet { stroke: var(--chart-violet); }
+.jb-chart .jb-chart-line.jb-tone-muted { stroke: var(--chart-muted); }
+.jb-chart .jb-chart-area { fill-opacity: 0.2; stroke: none; }
+.jb-chart .jb-chart-ring { fill: none; stroke: var(--chart-muted); stroke-width: 28; opacity: 0.3; }
+.jb-chart .jb-chart-total { fill: var(--text-primary); font-size: var(--font-size-control); font-weight: 700; }
+.jb-chart .jb-chart-hit { fill: transparent; stroke: none; }
+.jb-chart .jb-chart-target { cursor: pointer; }
+.jb-chart-picks { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-2) 0 0; }
+.jb-chart-pick { display: inline-flex; align-items: center; justify-content: center; min-height: var(--target-size); min-width: var(--target-size); padding: 0 var(--space-3); border: 1px solid var(--border-strong); border-radius: var(--radius-control); background: var(--bg-surface); color: var(--text-primary); font: inherit; font-size: var(--font-size-caption); cursor: pointer; }
+.jb-chart-pick:hover { background: var(--bg-muted); }
+.jb-chart-pick:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.jb-chart-legend { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); margin: var(--space-2) 0 0; padding: 0; list-style: none; font-size: var(--font-size-caption); color: var(--text-secondary); }
+.jb-chart-legend li { display: inline-flex; align-items: center; gap: var(--space-2); }
+.jb-chart-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--chart-stage); }
+.jb-chart-swatch.jb-tone-good { background: var(--chart-good); }
+.jb-chart-swatch.jb-tone-bad { background: var(--chart-bad); }
+.jb-chart-swatch.jb-tone-amber { background: var(--chart-amber); }
+.jb-chart-swatch.jb-tone-violet { background: var(--chart-violet); }
+.jb-chart-swatch.jb-tone-muted { background: var(--chart-muted); }
+`;
+
+// PR 5 (spec 08 S9.3): layout and text helpers. All classes, because the CSP refuses
+// style="" attributes; script may still set a property through element.style.setProperty
+// (the CSSOM is not an inline style attribute), which jb-meter__fill's width relies on.
+// Every layout class collapses to one column below 520px of frame width (the one @media
+// block at the end).
+const LAYOUT_CSS = `
+.jb-stack { display: flex; flex-direction: column; gap: var(--space-3); }
+.jb-row { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.jb-gap-1 { gap: var(--space-1); }
+.jb-gap-2 { gap: var(--space-2); }
+.jb-gap-3 { gap: var(--space-3); }
+.jb-gap-4 { gap: var(--space-4); }
+.jb-gap-5 { gap: var(--space-5); }
+.jb-gap-6 { gap: var(--space-6); }
+.jb-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-3); }
+.jb-cols-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.jb-cols-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); }
+.jb-split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); align-items: start; }
+.jb-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3); padding-bottom: var(--space-3); margin-bottom: var(--space-3); border-bottom: 1px solid var(--border); }
+.jb-h1, .jb-h2, .jb-h3 { margin: 0 0 var(--space-2); font-weight: 700; line-height: 1.3; color: var(--text-primary); }
+.jb-h1 { font-size: 20px; }
+.jb-h2 { font-size: 18px; }
+.jb-h3 { font-size: 16px; }
+.jb-stat { display: flex; flex-direction: column; gap: var(--space-1); }
+.jb-stat__value { font-size: 24px; font-weight: 700; line-height: 1.2; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.jb-stat__label { font-size: var(--font-size-caption); color: var(--text-secondary); }
+.jb-divider { height: 0; margin: var(--space-3) 0; border: 0; border-top: 1px solid var(--border); }
+.jb-scroll-x { max-width: 100%; overflow-x: auto; }
+.jb-table { width: 100%; border-collapse: collapse; font-size: var(--font-size-control); }
+.jb-table caption { padding: 0 0 var(--space-2); text-align: start; font-weight: 600; color: var(--text-primary); }
+.jb-table th, .jb-table td { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border); text-align: start; vertical-align: middle; }
+.jb-table th { font-size: var(--font-size-caption); font-weight: 600; color: var(--text-secondary); white-space: nowrap; }
+.jb-table .jb-num { text-align: end; font-variant-numeric: tabular-nums; }
+.jb-table__sort { display: inline-flex; align-items: center; gap: var(--space-1); min-height: var(--target-size); min-width: var(--target-size); margin: calc(var(--space-2) * -1) 0; padding: 0; border: 0; background: transparent; font: inherit; color: inherit; cursor: pointer; }
+.jb-table .jb-num .jb-table__sort { flex-direction: row-reverse; }
+.jb-table__sort::after { content: "\\2195"; color: var(--text-muted); }
+.jb-table th[aria-sort="ascending"] .jb-table__sort::after { content: "\\2191"; color: var(--text-primary); }
+.jb-table th[aria-sort="descending"] .jb-table__sort::after { content: "\\2193"; color: var(--text-primary); }
+.jb-table__row { cursor: pointer; }
+.jb-table__row:hover { background: var(--bg-muted); }
+.jb-table__row td { height: var(--target-size); }
+.jb-table__more { display: inline-flex; align-items: center; justify-content: center; min-height: var(--target-size); min-width: var(--target-size); margin-top: var(--space-2); padding: 0 var(--space-4); border: 1px solid var(--border-strong); border-radius: var(--radius-control); background: var(--bg-surface); font: inherit; font-size: var(--font-size-control); color: var(--text-primary); cursor: pointer; }
+.jb-table__more:hover { background: var(--bg-muted); }
+.jb-table__sort:focus-visible, .jb-table__more:focus-visible, .jb-table__row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.jb-timeline { list-style: none; margin: 0; padding: 0; }
+.jb-timeline__item { position: relative; margin: 0; padding: 0 0 var(--space-4) var(--space-6); }
+.jb-timeline__item::before { content: ""; position: absolute; left: 4px; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent-solid); }
+.jb-timeline__item::after { content: ""; position: absolute; left: 8px; top: 20px; bottom: 0; width: 2px; background: var(--border-strong); }
+.jb-timeline__item:last-child::after { display: none; }
+.jb-meter { position: relative; height: 8px; overflow: hidden; border-radius: var(--radius-badge); background: var(--bg-muted); }
+.jb-meter__fill { height: 100%; width: 0; border-radius: inherit; background: var(--accent-solid); }
+.jb-sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+.jb-hidden { display: none !important; }
+@media (max-width: 520px) {
+  .jb-row { flex-direction: column; align-items: stretch; }
+  .jb-cols-2, .jb-cols-3, .jb-split, .jb-grid { grid-template-columns: minmax(0, 1fr); }
+}
+`;
+
+// PR 5 (spec 08 S9.4): the control elements. Every target is at least 44px
+// (--target-size); focus shows the same ring as jb-button.
+const CONTROLS_CSS = `
+jb-select, jb-slider, jb-toggle, jb-segmented, jb-tabs { display: block; margin: var(--space-2) 0; }
+jb-select > option, jb-segmented > option { display: none; }
+.jb-control__label { display: block; margin-bottom: var(--space-1); font-size: var(--font-size-caption); color: var(--text-secondary); }
+.jb-select__button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: var(--target-size);
+  min-width: var(--target-size);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: var(--font-size-control);
+  cursor: pointer;
+  user-select: none;
+}
+.jb-select__caret::before { content: "\\25BE"; color: var(--text-secondary); }
+.jb-select__list {
+  position: relative;
+  max-height: 264px;
+  overflow-y: auto;
+  margin-top: var(--space-1);
+  padding: var(--space-1);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-popover);
+}
+.jb-select__option {
+  display: flex;
+  align-items: center;
+  min-height: var(--target-size);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-control);
+  color: var(--text-primary);
+  font-size: var(--font-size-control);
+  cursor: pointer;
+}
+.jb-select__option[aria-selected="true"] { font-weight: 600; }
+.jb-select__option.jb-active, .jb-select__option:hover { background: var(--bg-muted); }
+.jb-slider__row { display: flex; align-items: center; gap: var(--space-3); }
+.jb-slider__input {
+  flex: 1 1 auto;
+  min-width: var(--target-size);
+  min-height: var(--target-size);
+  margin: 0;
+  accent-color: var(--accent-solid);
+  cursor: pointer;
+}
+.jb-slider__value { min-width: 5ch; text-align: end; font-size: var(--font-size-control); font-variant-numeric: tabular-nums; color: var(--text-primary); }
+.jb-toggle__switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--target-size);
+  min-width: var(--target-size);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  user-select: none;
+}
+.jb-toggle__track { position: relative; flex: none; width: 40px; height: 24px; border-radius: var(--radius-badge); background: var(--border-strong); transition: background var(--motion-fast) var(--ease-standard); }
+.jb-toggle__thumb { position: absolute; left: 3px; top: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--bg-surface); transition: transform var(--motion-fast) var(--ease-standard); }
+.jb-toggle__switch[aria-checked="true"] .jb-toggle__track { background: var(--accent-solid); }
+.jb-toggle__switch[aria-checked="true"] .jb-toggle__thumb { transform: translateX(16px); }
+.jb-toggle__label { display: inline; margin: 0; font-size: var(--font-size-control); color: var(--text-primary); }
+.jb-segmented__group { display: inline-flex; flex-wrap: wrap; gap: var(--space-1); padding: var(--space-1); border: 1px solid var(--border-strong); border-radius: var(--radius-control); background: var(--bg-muted); }
+.jb-segmented__option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--target-size);
+  min-width: var(--target-size);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-control);
+  color: var(--text-secondary);
+  font-size: var(--font-size-control);
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+.jb-segmented__option[aria-checked="true"] { background: var(--bg-surface); color: var(--text-primary); box-shadow: var(--elevation-card); }
+jb-tab { display: block; padding-top: var(--space-3); }
+jb-tab[hidden] { display: none; }
+.jb-tabs__list { display: flex; flex-wrap: wrap; gap: var(--space-1); border-bottom: 1px solid var(--border); }
+.jb-tabs__tab {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-size);
+  min-width: var(--target-size);
+  padding: 0 var(--space-3);
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-control);
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+.jb-tabs__tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent-solid); }
+.jb-select__button:focus-visible, .jb-slider__input:focus-visible, .jb-toggle__switch:focus-visible, .jb-segmented__option:focus-visible,
+.jb-tabs__tab:focus-visible, jb-tab:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--focus-halo);
+}
+@media (prefers-reduced-motion: reduce) {
+  .jb-toggle__track, .jb-toggle__thumb { transition: none; }
+}
+`;
+
 export const KIT_CSS: string =
-  tokenBlock(":root", KIT_TOKENS.light) + tokenBlock(':root[data-theme="dark"]', KIT_TOKENS.dark) + BASE_CSS;
+  tokenBlock(":root", KIT_TOKENS.light) + tokenBlock(':root[data-theme="dark"]', KIT_TOKENS.dark) + BASE_CSS + CHART_CSS + LAYOUT_CSS + CONTROLS_CSS;
 
 // Plain ES2017 in a string: it is never bundled, it runs inside the frame. No "//"
 // anywhere in it (the static check reads "//" as a URL), so comments are /* */.
@@ -252,6 +460,58 @@ export const KIT_JS: string = `(function () {
   var listLength = getterOf(NodeList.prototype, "length");
   var lowerCase = uncurry("".toLowerCase);
   var sliceText = uncurry("".slice);
+  /* PR 5 (spec 08 S9): the natives the controls and the host helpers use, taken now, before
+     model code can replace them. createElement and createElementNS are the locked guards
+     above. */
+  function setterOf(proto, name) {
+    var d = proto ? Object.getOwnPropertyDescriptor(proto, name) : null;
+    return d && typeof d.set === "function" ? uncurry(d.set) : null;
+  }
+  var makeEl = uncurry(Document.prototype.createElement);
+  var makeElNS = uncurry(Document.prototype.createElementNS);
+  var makeText = uncurry(Document.prototype.createTextNode);
+  var appendTo = uncurry(Node.prototype.appendChild);
+  var insertInto = uncurry(Node.prototype.insertBefore);
+  var removeFrom = uncurry(Node.prototype.removeChild);
+  var firstChildOf = getterOf(Node.prototype, "firstChild");
+  var setText = setterOf(Node.prototype, "textContent");
+  var getText = getterOf(Node.prototype, "textContent");
+  var setAttr = uncurry(Element.prototype.setAttribute);
+  var getAttr = uncurry(Element.prototype.getAttribute);
+  var hasAttr = uncurry(Element.prototype.hasAttribute);
+  var childrenOf = getterOf(Element.prototype, "children");
+  var collectionLength = getterOf(HTMLCollection.prototype, "length");
+  var localNameOf = getterOf(Element.prototype, "localName");
+  var listen = uncurry(EventTarget.prototype.addEventListener);
+  var dispatch = uncurry(EventTarget.prototype.dispatchEvent);
+  var stopEvent = uncurry(Event.prototype.stopPropagation);
+  var focusHtml = uncurry(HTMLElement.prototype.focus);
+  var focusSvg = typeof SVGElement === "function" && typeof SVGElement.prototype.focus === "function" ? uncurry(SVGElement.prototype.focus) : null;
+  var readyStateOf = getterOf(Document.prototype, "readyState");
+  var offsetTopOf = getterOf(HTMLElement.prototype, "offsetTop");
+  var offsetHeightOf = getterOf(HTMLElement.prototype, "offsetHeight");
+  var clientHeightOf = getterOf(Element.prototype, "clientHeight");
+  var scrollTopOf = getterOf(Element.prototype, "scrollTop");
+  var setScrollTop = setterOf(Element.prototype, "scrollTop");
+  var inputValueOf = getterOf(HTMLInputElement.prototype, "value");
+  var setInputValue = setterOf(HTMLInputElement.prototype, "value");
+  var trimText = uncurry("".trim);
+  var numberText = uncurry((0).toLocaleString);
+  var fixedText = uncurry((0).toFixed);
+  var sortList = uncurry([].sort);
+  var sliceList = uncurry([].slice);
+  var joinList = uncurry([].join);
+  var textOf = String;
+  var hasOwn = uncurry(Object.prototype.hasOwnProperty);
+  var ownKeys = Object.keys;
+  var freeze = Object.freeze;
+  var isList = Array.isArray;
+  var finite = isFinite;
+  var toNumber = Number;
+  var M = { max: Math.max, min: Math.min, round: Math.round, floor: Math.floor, abs: Math.abs, sin: Math.sin, cos: Math.cos, PI: Math.PI };
+  var ChangeEvent = CustomEvent;
+  var queueTask = setTimeout;
+  var defer = typeof queueMicrotask === "function" ? queueMicrotask : function (f) { queueTask(f, 0); };
   function isElement(node) {
     try { return nodeTypeOf(node) === 1; } catch (err) { return false; }
   }
@@ -338,8 +598,8 @@ export const KIT_JS: string = `(function () {
     try { portSend(port, msg); } catch (err) { /* an uncloneable value: nothing is sent */ }
   }
   function clip(value, max) {
-    var s = String(value == null ? "" : value);
-    return s.length > max ? s.slice(0, max) : s;
+    var s = textOf(value == null ? "" : value);
+    return s.length > max ? sliceText(s, 0, max) : s;
   }
   function report(message) {
     if (state.reported) return;
@@ -392,6 +652,8 @@ export const KIT_JS: string = `(function () {
   var keyOf = getterOf(KeyboardEvent.prototype, "key");
   var preventedOf = getterOf(Event.prototype, "defaultPrevented");
   var later = setTimeout;
+  /* The close function of the open <jb-select> popup, if one is open (PR 5, S9.2). */
+  var openPopup = null;
   window.addEventListener("keydown", function (e) {
     var trusted = false;
     var key = "";
@@ -400,6 +662,15 @@ export const KIT_JS: string = `(function () {
       key = keyOf ? keyOf(e) : "";
     } catch (err) { return; }
     if (!trusted || key !== "Escape") return;
+    /* PR 5 (spec 08 S9.2): with a <jb-select> popup open, Escape closes the popup, here,
+       before any model listener can stop the event, and posts nothing. */
+    if (openPopup) {
+      var closePopup = openPopup;
+      openPopup = null;
+      try { closePopup(); } catch (err) { /* nothing more to do */ }
+      try { cancelEvent(e); } catch (err) { /* nothing more to do */ }
+      return;
+    }
     later(function () {
       try { if (!preventedOf || preventedOf(e)) return; } catch (err) { return; }
       post({ type: "escape" });
@@ -451,9 +722,13 @@ export const KIT_JS: string = `(function () {
     for (var k in attrs) if (Object.prototype.hasOwnProperty.call(attrs, k)) el.setAttribute(k, String(attrs[k]));
     return el;
   }
-  function chart(el, spec) {
-    if (!el || typeof el.appendChild !== "function") return;
-    spec = spec && typeof spec === "object" ? spec : {};
+  /* PR 5: the namespace is read now, while the natives are still the browser's own. */
+  svgEl("g", {});
+  /* bar, line and sparkline (and the bar drawing any other unknown viz name falls back to):
+     the drawing as it was before PR 5, unchanged for the same input, so stored documents
+     render as before (kit.behaviour.test.ts holds the snapshots). PR 5 adds, beside it, the
+     hidden data table, and with onSelect a target per point. */
+  function legacyChart(spec, fmt) {
     var raw = Array.isArray(spec.points) ? spec.points.slice(0, CHART_POINTS_MAX) : [];
     var points = [];
     var max = 0;
@@ -492,8 +767,732 @@ export const KIT_JS: string = `(function () {
         svg.appendChild(text);
       }
     }
-    while (el.firstChild) el.removeChild(el.firstChild);
-    el.appendChild(svg);
+    var onSelect = typeof spec.onSelect === "function" ? spec.onSelect : null;
+    var rows = [];
+    for (var r = 0; r < points.length; r++) {
+      rows[rows.length] = [points[r].label, fmt(points[r].value)];
+      if (!onSelect) continue;
+      var info = { label: points[r].label, value: points[r].value, series: null, index: r };
+      if (spec.viz === "line" || spec.viz === "sparkline") {
+        var mark = pointTarget(step * r + step / 2, BASE - (points[r].value / max) * PLOT, "stage");
+        selectable(mark, info, onSelect, fmt);
+        appendTo(svg, mark);
+      } else {
+        var hit = svgNode("rect", { x: fx(step * r), y: 0, width: fx(step), height: BASE, "class": "jb-chart-hit" });
+        selectable(hit, info, onSelect, fmt);
+        appendTo(svg, hit);
+      }
+    }
+    return { svg: svg, legend: null, head: ["Label", "Value"], rows: rows };
+  }
+
+  /* PR 5 (spec 08 S9.5): hbar, stacked, area, scatter and donut. Inline SVG named by the
+     title (role img, or group when onSelect makes the marks buttons), a visually hidden
+     data table for screen readers, and a legend for more than one series. Caps: 8 series
+     and 200 points in all; more is clipped. tone is one of the --chart-* colours. */
+  var SERIES_MAX = 8;
+  var CHART_TOTAL_MAX = 200;
+  var CHART_TONES = { stage: 1, good: 1, bad: 1, amber: 1, violet: 1, muted: 1 };
+  var TONE_CYCLE = ["stage", "good", "amber", "violet", "bad", "muted"];
+  function toneOf(tone, i) {
+    return typeof tone === "string" && hasOwn(CHART_TONES, tone) ? tone : TONE_CYCLE[i % TONE_CYCLE.length];
+  }
+  function fx(n) { return fixedText(n, 1); }
+  function svgNode(tag, attrs) {
+    var e = makeElNS(document, svgNamespace, tag);
+    var keys = ownKeys(attrs);
+    for (var i = 0; i < keys.length; i++) setAttr(e, keys[i], textOf(attrs[keys[i]]));
+    return e;
+  }
+  function svgText(x, y, text, anchor, cls) {
+    var t = svgNode("text", { x: fx(x), y: fx(y), "text-anchor": anchor, "class": cls || "jb-chart-label" });
+    setText(t, text);
+    return t;
+  }
+  function tip(el, text) {
+    var t = svgNode("title", {});
+    setText(t, text);
+    appendTo(el, t);
+  }
+  function describePoint(info, fmt) {
+    return (info.series ? info.series + ", " : "") + info.label + ": " + fmt(info.value);
+  }
+  /* With onSelect, each mark gets a native button in a row under the chart (S12: an SVG mark
+     scales with the frame, so it cannot promise 44px; the button can). The button answers
+     click, Enter and Space as any button does; the drawn mark still answers a pointer. Each
+     calls onSelect with a fresh { label, value, series, index }. */
+  var chartPicks = null;
+  function selectable(mark, info, onSelect, fmt) {
+    function fire() { onSelect({ label: info.label, value: info.value, series: info.series, index: info.index }); }
+    setAttr(mark, "class", (getAttr(mark, "class") || "") + " jb-chart-target");
+    listen(mark, "click", fire);
+    if (chartPicks) chartPicks[chartPicks.length] = { text: describePoint(info, fmt), fire: fire };
+  }
+  function picksRow(title, picks) {
+    var row = node("div", "jb-chart-picks");
+    setAttr(row, "role", "group");
+    setAttr(row, "aria-label", "Select in " + title);
+    for (var i = 0; i < picks.length; i++) {
+      var b = node("button", "jb-chart-pick", picks[i].text);
+      setAttr(b, "type", "button");
+      listen(b, "click", picks[i].fire);
+      appendTo(row, b);
+    }
+    return row;
+  }
+  /* A point's target: a 44-unit transparent circle with a small visible dot. */
+  function pointTarget(x, y, tone) {
+    var g = svgNode("g", { "class": "jb-chart-point" });
+    appendTo(g, svgNode("circle", { cx: fx(x), cy: fx(y), r: 22, "class": "jb-chart-hit" }));
+    appendTo(g, svgNode("circle", { cx: fx(x), cy: fx(y), r: 3, "class": "jb-chart-dot jb-tone-" + tone }));
+    return g;
+  }
+  /* The series to draw: spec.series, or spec.points as one unnamed series; 8 series and 200
+     points in all at most. A value that is not a finite number counts as 0. */
+  function chartSeries(spec) {
+    var many = isList(spec.series) && spec.series.length > 0;
+    var src = many ? spec.series : [{ points: spec.points }];
+    var budget = CHART_TOTAL_MAX;
+    var out = [];
+    for (var i = 0; i < src.length && out.length < SERIES_MAX; i++) {
+      var s = src[i] && typeof src[i] === "object" ? src[i] : {};
+      var pts = isList(s.points) ? s.points : [];
+      var list = [];
+      for (var j = 0; j < pts.length && budget > 0; j++) {
+        var p = pts[j] && typeof pts[j] === "object" ? pts[j] : {};
+        list[list.length] = { label: clip(p.label, LABEL_MAX), value: isNum(p.value) ? p.value : 0, tone: p.tone };
+        budget -= 1;
+      }
+      var name = many ? clip(s.name == null || s.name === "" ? "Series " + (i + 1) : s.name, LABEL_MAX) : null;
+      out[out.length] = { name: name, tone: toneOf(s.tone, i), points: list };
+    }
+    return out;
+  }
+  /* The labels of all series in order of first appearance, and where each series has each. */
+  function chartCategories(series) {
+    var labels = [];
+    var at = {};
+    for (var i = 0; i < series.length; i++) {
+      var pts = series[i].points;
+      for (var j = 0; j < pts.length; j++) {
+        var key = "k" + pts[j].label;
+        if (!hasOwn(at, key)) { at[key] = labels.length; labels[labels.length] = pts[j].label; }
+      }
+    }
+    var cells = [];
+    for (var s = 0; s < series.length; s++) {
+      var row = [];
+      for (var c = 0; c < labels.length; c++) row[c] = null;
+      for (var q = 0; q < series[s].points.length; q++) {
+        var ci = at["k" + series[s].points[q].label];
+        if (row[ci] === null) row[ci] = { value: series[s].points[q].value, index: q };
+      }
+      cells[s] = row;
+    }
+    return { labels: labels, cells: cells };
+  }
+  /* The hidden table's head and rows: one row per point for one series, else one row per
+     label with a column per series. */
+  function seriesTable(series, cats, fmt) {
+    var head = ["Label"];
+    var rows = [];
+    if (series.length === 1 && series[0].name === null) {
+      head[1] = "Value";
+      for (var i = 0; i < series[0].points.length; i++) rows[rows.length] = [series[0].points[i].label, fmt(series[0].points[i].value)];
+      return { head: head, rows: rows };
+    }
+    for (var s = 0; s < series.length; s++) head[head.length] = series[s].name;
+    for (var c = 0; c < cats.labels.length; c++) {
+      var row = [cats.labels[c]];
+      for (var t = 0; t < series.length; t++) row[row.length] = cats.cells[t][c] ? fmt(cats.cells[t][c].value) : "";
+      rows[rows.length] = row;
+    }
+    return { head: head, rows: rows };
+  }
+  function legendOf(series) {
+    if (series.length < 2) return null;
+    var out = [];
+    for (var i = 0; i < series.length; i++) out[out.length] = { name: series[i].name, tone: series[i].tone };
+    return out;
+  }
+  /* Category labels along the base, at most 12 shown. */
+  function baseLabels(svg, labels, step, y) {
+    var every = M.max(1, M.floor((labels.length + 11) / 12));
+    for (var i = 0; i < labels.length; i += every) appendTo(svg, svgText(step * i + step / 2, y, labels[i], "middle"));
+  }
+  function chartSvg(w, h, title, onSelect) {
+    return svgNode("svg", { viewBox: "0 0 " + w + " " + h, role: "img", "class": "jb-chart", "aria-label": clip(title || "Chart", 80) });
+  }
+
+  function drawHbar(spec, fmt, onSelect) {
+    var series = sliceList(chartSeries(spec), 0, 1);
+    var pts = series[0].points;
+    var W = 320, LABEL_W = 112, VALUE_W = 52, BAR_H = 16;
+    var rowH = onSelect ? 48 : 28;
+    var H = M.max(pts.length, 1) * rowH + 8;
+    var svg = chartSvg(W, H, spec.title, onSelect);
+    var max = 0;
+    for (var i = 0; i < pts.length; i++) if (pts[i].value > max) max = pts[i].value;
+    if (max <= 0) max = 1;
+    for (var r = 0; r < pts.length; r++) {
+      var v = M.max(pts[r].value, 0);
+      var y = 4 + r * rowH;
+      var by = y + (rowH - BAR_H) / 2;
+      var w = (v / max) * (W - LABEL_W - VALUE_W);
+      var info = { label: pts[r].label, value: pts[r].value, series: null, index: r };
+      appendTo(svg, svgText(0, by + 12, clip(pts[r].label, 18), "start"));
+      var bar = svgNode("rect", { x: LABEL_W, y: fx(by), width: fx(w), height: BAR_H, "class": "jb-chart-mark jb-tone-" + toneOf(pts[r].tone, 0) });
+      tip(bar, describePoint(info, fmt));
+      appendTo(svg, bar);
+      appendTo(svg, svgText(LABEL_W + w + 4, by + 12, fmt(pts[r].value), "start"));
+      if (onSelect) {
+        var hit = svgNode("rect", { x: 0, y: fx(y), width: W, height: rowH, "class": "jb-chart-hit" });
+        selectable(hit, info, onSelect, fmt);
+        appendTo(svg, hit);
+      }
+    }
+    var table = seriesTable(series, chartCategories(series), fmt);
+    return { svg: svg, legend: null, head: table.head, rows: table.rows };
+  }
+
+  function drawStacked(spec, fmt, onSelect) {
+    var series = chartSeries(spec);
+    var cats = chartCategories(series);
+    var n = cats.labels.length;
+    var W = 320, H = 160, BASE = 136, PLOT = 124;
+    var svg = chartSvg(W, H, spec.title, onSelect);
+    appendTo(svg, svgNode("line", { x1: 0, y1: BASE, x2: W, y2: BASE, "class": "jb-chart-axis" }));
+    var max = 0;
+    for (var c = 0; c < n; c++) {
+      var total = 0;
+      for (var s = 0; s < series.length; s++) if (cats.cells[s][c] && cats.cells[s][c].value > 0) total += cats.cells[s][c].value;
+      if (total > max) max = total;
+    }
+    if (max <= 0) max = 1;
+    var step = W / M.max(n, 1);
+    for (var k = 0; k < n; k++) {
+      var y = BASE;
+      for (var t = 0; t < series.length; t++) {
+        var cell = cats.cells[t][k];
+        if (!cell || !(cell.value > 0)) continue;
+        var h = (cell.value / max) * PLOT;
+        y -= h;
+        var tone = series.length === 1 ? toneOf(series[t].points[cell.index].tone, 0) : series[t].tone;
+        var seg = svgNode("rect", { x: fx(step * k + step * 0.15), y: fx(y), width: fx(step * 0.7), height: fx(h), "class": "jb-chart-mark jb-tone-" + tone });
+        var info = { label: cats.labels[k], value: cell.value, series: series[t].name, index: cell.index };
+        tip(seg, describePoint(info, fmt));
+        if (onSelect) selectable(seg, info, onSelect, fmt);
+        appendTo(svg, seg);
+      }
+    }
+    baseLabels(svg, cats.labels, step, H - 6);
+    var table = seriesTable(series, cats, fmt);
+    return { svg: svg, legend: legendOf(series), head: table.head, rows: table.rows };
+  }
+
+  function drawArea(spec, fmt, onSelect) {
+    var series = chartSeries(spec);
+    var cats = chartCategories(series);
+    var W = 320, H = 160, BASE = 136, PLOT = 124;
+    var svg = chartSvg(W, H, spec.title, onSelect);
+    appendTo(svg, svgNode("line", { x1: 0, y1: BASE, x2: W, y2: BASE, "class": "jb-chart-axis" }));
+    var longest = 0;
+    var max = 0;
+    for (var s = 0; s < series.length; s++) {
+      if (series[s].points.length > series[longest].points.length) longest = s;
+      for (var i = 0; i < series[s].points.length; i++) if (series[s].points[i].value > max) max = series[s].points[i].value;
+    }
+    if (max <= 0) max = 1;
+    var step = W / M.max(series[longest].points.length, 1);
+    for (var t = 0; t < series.length; t++) {
+      var pts = series[t].points;
+      if (pts.length === 0) continue;
+      var coords = [];
+      for (var j = 0; j < pts.length; j++) coords[j] = fx(step * j + step / 2) + "," + fx(BASE - (M.max(pts[j].value, 0) / max) * PLOT);
+      var first = fx(step / 2) + "," + BASE;
+      var last = fx(step * (pts.length - 1) + step / 2) + "," + BASE;
+      var area = svgNode("polygon", { points: first + " " + joinList(coords, " ") + " " + last, "class": "jb-chart-area jb-chart-mark jb-tone-" + series[t].tone });
+      tip(area, series[t].name === null ? clip(spec.title || "Chart", 80) : series[t].name);
+      appendTo(svg, area);
+      appendTo(svg, svgNode("polyline", { points: joinList(coords, " "), "class": "jb-chart-line jb-tone-" + series[t].tone }));
+      if (!onSelect) continue;
+      for (var q = 0; q < pts.length; q++) {
+        var mark = pointTarget(step * q + step / 2, BASE - (M.max(pts[q].value, 0) / max) * PLOT, series[t].tone);
+        selectable(mark, { label: pts[q].label, value: pts[q].value, series: series[t].name, index: q }, onSelect, fmt);
+        appendTo(svg, mark);
+      }
+    }
+    var labels = [];
+    for (var b = 0; b < series[longest].points.length; b++) labels[b] = series[longest].points[b].label;
+    baseLabels(svg, labels, step, H - 6);
+    var table = seriesTable(series, cats, fmt);
+    return { svg: svg, legend: legendOf(series), head: table.head, rows: table.rows };
+  }
+
+  function drawScatter(spec, fmt, onSelect) {
+    var raw = isList(spec.xy) ? spec.xy : [];
+    var pts = [];
+    for (var i = 0; i < raw.length && i < CHART_TOTAL_MAX; i++) {
+      var p = raw[i] && typeof raw[i] === "object" ? raw[i] : {};
+      if (!isNum(p.x) || !isNum(p.y)) continue;
+      pts[pts.length] = { x: p.x, y: p.y, label: p.label == null ? "" : clip(p.label, LABEL_MAX), tone: toneOf(p.tone, 0) };
+    }
+    var W = 320, H = 160, L = 44, R = W - 8, T = 8, B = 124;
+    var svg = chartSvg(W, H, spec.title, onSelect);
+    var x0 = 0, x1 = 1, y0 = 0, y1 = 1;
+    if (pts.length > 0) {
+      x0 = x1 = pts[0].x;
+      y0 = y1 = pts[0].y;
+      for (var j = 1; j < pts.length; j++) {
+        x0 = M.min(x0, pts[j].x); x1 = M.max(x1, pts[j].x);
+        y0 = M.min(y0, pts[j].y); y1 = M.max(y1, pts[j].y);
+      }
+      if (x0 === x1) { x0 -= 1; x1 += 1; }
+      if (y0 === y1) { y0 -= 1; y1 += 1; }
+    }
+    function sx(v) { return L + ((v - x0) / (x1 - x0)) * (R - L); }
+    function sy(v) { return B - ((v - y0) / (y1 - y0)) * (B - T); }
+    appendTo(svg, svgNode("line", { x1: L, y1: B, x2: R, y2: B, "class": "jb-chart-axis" }));
+    appendTo(svg, svgNode("line", { x1: L, y1: T, x2: L, y2: B, "class": "jb-chart-axis" }));
+    appendTo(svg, svgText(L, B + 14, fmtNumber(x0), "start"));
+    appendTo(svg, svgText(R, B + 14, fmtNumber(x1), "end"));
+    appendTo(svg, svgText(L - 4, B, fmt(y0), "end"));
+    appendTo(svg, svgText(L - 4, T + 8, fmt(y1), "end"));
+    var xLabel = spec.xLabel == null || spec.xLabel === "" ? "x" : clip(spec.xLabel, LABEL_MAX);
+    var yLabel = spec.yLabel == null || spec.yLabel === "" ? "y" : clip(spec.yLabel, LABEL_MAX);
+    if (spec.xLabel) appendTo(svg, svgText((L + R) / 2, H - 4, xLabel, "middle"));
+    if (spec.yLabel) {
+      var yl = svgText(0, 0, yLabel, "middle");
+      setAttr(yl, "transform", "translate(10 " + fx((T + B) / 2) + ") rotate(-90)");
+      appendTo(svg, yl);
+    }
+    var rows = [];
+    for (var k = 0; k < pts.length; k++) {
+      var info = { label: pts[k].label === "" ? fmtNumber(pts[k].x) : pts[k].label, value: pts[k].y, series: null, index: k };
+      var dot = svgNode("circle", { cx: fx(sx(pts[k].x)), cy: fx(sy(pts[k].y)), r: 4, "class": "jb-chart-dot jb-chart-mark jb-tone-" + pts[k].tone });
+      tip(dot, (pts[k].label ? pts[k].label + ": " : "") + fmtNumber(pts[k].x) + ", " + fmt(pts[k].y));
+      appendTo(svg, dot);
+      if (onSelect) {
+        var hit = svgNode("circle", { cx: fx(sx(pts[k].x)), cy: fx(sy(pts[k].y)), r: 22, "class": "jb-chart-hit" });
+        selectable(hit, info, onSelect, fmt);
+        appendTo(svg, hit);
+      }
+      rows[rows.length] = [pts[k].label, fmtNumber(pts[k].x), fmt(pts[k].y)];
+    }
+    return { svg: svg, legend: null, head: ["Label", xLabel, yLabel], rows: rows };
+  }
+
+  function arcPath(cx, cy, R, r, a0, a1) {
+    if (a1 - a0 >= 2 * M.PI - 0.0001) return arcPath(cx, cy, R, r, a0, a0 + M.PI) + " " + arcPath(cx, cy, R, r, a0 + M.PI, a1);
+    var large = a1 - a0 > M.PI ? 1 : 0;
+    function at(rad, a) { return fx(cx + rad * M.cos(a)) + " " + fx(cy + rad * M.sin(a)); }
+    return "M " + at(R, a0) + " A " + R + " " + R + " 0 " + large + " 1 " + at(R, a1) +
+      " L " + at(r, a1) + " A " + r + " " + r + " 0 " + large + " 0 " + at(r, a0) + " Z";
+  }
+  function drawDonut(spec, fmt, onSelect) {
+    var series = sliceList(chartSeries(spec), 0, 1);
+    var pts = series[0].points;
+    var W = 320, H = 160, CX = 80, CY = 80, R = 72, RI = 44;
+    var svg = chartSvg(W, H, spec.title, onSelect);
+    var total = 0;
+    for (var i = 0; i < pts.length; i++) if (pts[i].value > 0) total += pts[i].value;
+    var a = -M.PI / 2;
+    var keys = 0;
+    for (var k = 0; k < pts.length; k++) {
+      var v = pts[k].value;
+      if (!(v > 0) || total <= 0) continue;
+      var tone = toneOf(pts[k].tone, k);
+      var b = a + (v / total) * 2 * M.PI;
+      var slice = svgNode("path", { d: arcPath(CX, CY, R, RI, a, b), "class": "jb-chart-mark jb-tone-" + tone });
+      var info = { label: pts[k].label, value: v, series: null, index: k };
+      tip(slice, describePoint(info, fmt));
+      if (onSelect) selectable(slice, info, onSelect, fmt);
+      appendTo(svg, slice);
+      a = b;
+      if (keys < 8) {
+        var ky = 20 + keys * 18;
+        appendTo(svg, svgNode("rect", { x: 176, y: ky - 9, width: 10, height: 10, rx: 2, "class": "jb-chart-key jb-tone-" + tone }));
+        appendTo(svg, svgText(192, ky, clip(pts[k].label, 16) + " " + fmtPercent(v / total), "start"));
+        keys += 1;
+      }
+    }
+    if (total <= 0) appendTo(svg, svgNode("circle", { cx: CX, cy: CY, r: (R + RI) / 2, "class": "jb-chart-ring" }));
+    appendTo(svg, svgText(CX, CY + 5, fmt(total), "middle", "jb-chart-total"));
+    var table = seriesTable(series, chartCategories(series), fmt);
+    return { svg: svg, legend: null, head: table.head, rows: table.rows };
+  }
+
+  function chartTable(title, head, rows) {
+    var table = node("table", "jb-sr-only");
+    appendTo(table, node("caption", null, title));
+    var thead = node("thead");
+    var tr = node("tr");
+    for (var i = 0; i < head.length; i++) {
+      var th = node("th", null, head[i]);
+      setAttr(th, "scope", "col");
+      appendTo(tr, th);
+    }
+    appendTo(thead, tr);
+    appendTo(table, thead);
+    var tbody = node("tbody");
+    for (var r = 0; r < rows.length; r++) {
+      var row = node("tr");
+      for (var c = 0; c < rows[r].length; c++) {
+        var cell = node(c === 0 ? "th" : "td", null, rows[r][c]);
+        if (c === 0) setAttr(cell, "scope", "row");
+        appendTo(row, cell);
+      }
+      appendTo(tbody, row);
+    }
+    appendTo(table, tbody);
+    return table;
+  }
+  function chartLegend(items) {
+    var ul = node("ul", "jb-chart-legend");
+    for (var i = 0; i < items.length; i++) {
+      var li = node("li");
+      var swatch = node("span", "jb-chart-swatch jb-tone-" + items[i].tone);
+      setAttr(swatch, "aria-hidden", "true");
+      appendTo(li, swatch);
+      appendTo(li, makeText(document, items[i].name));
+      appendTo(ul, li);
+    }
+    return ul;
+  }
+  function clearNode(el) {
+    var c;
+    while ((c = firstChildOf(el))) removeFrom(el, c);
+  }
+  function drawChart(el, spec) {
+    spec = spec && typeof spec === "object" ? spec : {};
+    var fmt = formatterOf(spec.format);
+    var onSelect = typeof spec.onSelect === "function" ? spec.onSelect : null;
+    var out;
+    var picks = [];
+    chartPicks = picks;
+    try {
+      out = drawOne(spec, fmt, onSelect);
+    } finally {
+      chartPicks = null;
+    }
+    var title = clip(spec.title || "Chart", 80);
+    clearNode(el);
+    appendTo(el, out.svg);
+    if (out.legend) appendTo(el, chartLegend(out.legend));
+    if (picks.length > 0) appendTo(el, picksRow(title, picks));
+    appendTo(el, chartTable(title, out.head, out.rows));
+  }
+  function drawOne(spec, fmt, onSelect) {
+    var out;
+    if (spec.viz === "hbar") out = drawHbar(spec, fmt, onSelect);
+    else if (spec.viz === "stacked") out = drawStacked(spec, fmt, onSelect);
+    else if (spec.viz === "area") out = drawArea(spec, fmt, onSelect);
+    else if (spec.viz === "scatter") out = drawScatter(spec, fmt, onSelect);
+    else if (spec.viz === "donut") out = drawDonut(spec, fmt, onSelect);
+    else out = legacyChart(spec, fmt);
+    return out;
+  }
+  /* host.chart(el, spec) -> { update(spec), destroy() }: update redraws into the same
+     element; destroy empties it, and nothing draws there afterwards. */
+  var NO_CHART = freeze({ update: function () {}, destroy: function () {} });
+  function chart(el, spec) {
+    if (!el || typeof el.appendChild !== "function" || !isElement(el)) return NO_CHART;
+    var live = true;
+    drawChart(el, spec);
+    return freeze({
+      update: function (next) { if (live) drawChart(el, next); },
+      destroy: function () { live = false; clearNode(el); }
+    });
+  }
+
+  /* PR 5 (spec 08 S9.5): host.el builds an element from a closed set of attributes; text
+     and string children become text nodes, so data never travels as markup. */
+  var testRe = uncurry(RegExp.prototype.test);
+  var execRe = uncurry(RegExp.prototype.exec);
+  var EL_ATTRS = { role: 1, title: 1, colspan: 1, rowspan: 1 };
+  var EL_ATTR_RE = /^(?:aria|data)-[A-Za-z0-9_.:-]+$/;
+  function buildEl(tag, attrs, children) {
+    var e = makeEl(document, textOf(tag));
+    if (attrs && typeof attrs === "object") {
+      var keys = ownKeys(attrs);
+      for (var i = 0; i < keys.length; i++) {
+        var k = keys[i];
+        var v = attrs[k];
+        if (v === undefined || v === null) continue;
+        if (k === "class") setAttr(e, "class", textOf(v));
+        else if (k === "text") setText(e, textOf(v));
+        else if (k === "hidden") { if (v) setAttr(e, "hidden", ""); }
+        else if (hasOwn(EL_ATTRS, k) || testRe(EL_ATTR_RE, k)) setAttr(e, k, textOf(v));
+      }
+    }
+    if (isList(children)) {
+      for (var j = 0; j < children.length; j++) {
+        var c = children[j];
+        if (typeof c === "string" || typeof c === "number") appendTo(e, makeText(document, textOf(c)));
+        else if (isElement(c)) appendTo(e, c);
+      }
+    }
+    return e;
+  }
+
+  /* host.format.date: the calendar date an ISO string starts with, as "Nov 28, 2026" (the
+     date as written, no time zone shift); "" for anything else. */
+  var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  var DATE_RE = /^(\\d{4})-(\\d{2})-(\\d{2})(?:$|T)/;
+  function fmtDate(iso) {
+    if (typeof iso !== "string") return "";
+    var m = execRe(DATE_RE, iso);
+    if (!m) return "";
+    var y = toNumber(m[1]);
+    var mo = toNumber(m[2]);
+    var d = toNumber(m[3]);
+    var leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+    var days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    if (mo < 1 || mo > 12 || d < 1 || d > days[mo - 1]) return "";
+    return MONTHS[mo - 1] + " " + d + ", " + y;
+  }
+  /* host.format.pay: the review's pay exactly as the app shows it (fmtPay in
+     lib/rolefit/fit.ts, through payLabel; kit.behaviour.test.ts runs both over one table),
+     or null when none is listed. */
+  function fmtPay(r) {
+    if (!r || typeof r !== "object") return null;
+    var min = r.payMin;
+    var max = r.payMax;
+    var cur = r.payCurrency;
+    if (min == null && max == null) return null;
+    var c = !cur || cur === "USD" ? "$" : cur + " ";
+    if (r.payPeriod === "hour") {
+      if (min != null && max == null) return "From " + c + min + "/hr";
+      if (max != null && min == null) return "Up to " + c + max + "/hr";
+      return c + (min == null ? "?" : min) + "\\u2013" + (max == null ? "?" : max) + "/hr";
+    }
+    function k(n) { return M.round(n / 1000) + "k"; }
+    if (min != null && max == null) return "From " + c + k(min);
+    if (max != null && min == null) return "Up to " + c + k(max);
+    return c + (min != null ? k(min) : "?") + "\\u2013" + (max != null ? k(max) : "?");
+  }
+  var format = freeze({ number: fmtNumber, percent: fmtPercent, days: fmtDays, date: fmtDate, pay: fmtPay });
+
+  /* host.job: a read-only join over host.data for one job id, or null when the id is in
+     none of jobs, reviews, shortlist and applications. A job that is only on the shortlist
+     or in the applications list is that row's own job. */
+  function ownValue(record, id) {
+    return record && typeof record === "object" && hasOwn(record, id) ? record[id] : null;
+  }
+  function rowFor(list, id) {
+    if (!isList(list)) return null;
+    for (var i = 0; i < list.length; i++) {
+      var row = list[i];
+      if (row && typeof row === "object" && row.jobId === id) return row;
+    }
+    return null;
+  }
+  function jobOf(id) {
+    if (typeof id !== "string" || id === "") return null;
+    var d = state.data;
+    if (!d || typeof d !== "object") return null;
+    var j = ownValue(d.jobs, id);
+    var r = ownValue(d.reviews, id);
+    var s = rowFor(d.shortlist, id);
+    var a = rowFor(d.applications, id);
+    if (j === null) j = s && s.job ? s.job : a && a.job ? a.job : null;
+    if (j === null && r === null && s === null && a === null) return null;
+    return { job: j, review: r, shortlist: s, application: a };
+  }
+
+  /* PR 5 (spec 08 S9.5): host.table(el, spec) -> { update(rows), sort(key, dir) }. A real
+     table in a jb-scroll-x wrapper; every cell is set as text. A sortable column's header is
+     a button that sorts ascending, then descending; a missing value sorts last either way.
+     pageSize rows show at first (25 by default), with a Show more button for the next page,
+     and at most 500 rows ever render. onRowSelect(row, index) gets the caller's own row and
+     its index in the rows given, on click or Enter. */
+  var TABLE_ROWS_MAX = 500;
+  var TABLE_COLUMNS_MAX = 20;
+  var compareText = uncurry("".localeCompare);
+  var NO_TABLE = freeze({ update: function () {}, sort: function () {} });
+  function cellValue(row, key) {
+    return row !== null && typeof row === "object" && hasOwn(row, key) ? row[key] : undefined;
+  }
+  function cellText(value, fmtName) {
+    if (value === null || value === undefined) return "";
+    if (fmtName === "date") return typeof value === "string" ? fmtDate(value) : "";
+    if (fmtName === "pay") { var p = value && typeof value === "object" ? fmtPay(value) : null; return p === null ? "" : p; }
+    if (typeof fmtName === "string" && hasOwn(VALUE_FORMATS, fmtName)) return VALUE_FORMATS[fmtName](value);
+    if (typeof value === "number") return fmtNumber(value);
+    if (typeof value === "string") return value;
+    if (typeof value === "boolean") return value ? "Yes" : "No";
+    return "";
+  }
+  function isMissing(v) {
+    return v === null || v === undefined || v === "" || (typeof v === "number" && !finite(v));
+  }
+  function compareCells(a, b) {
+    if (typeof a === "number" && typeof b === "number") return a < b ? -1 : a > b ? 1 : 0;
+    var r;
+    try { r = compareText(textOf(a), textOf(b), "en", { numeric: true, sensitivity: "base" }); } catch (err) { r = 0; }
+    return r < 0 ? -1 : r > 0 ? 1 : 0;
+  }
+  function tableColumns(list) {
+    var out = [];
+    if (!isList(list)) return out;
+    for (var i = 0; i < list.length && out.length < TABLE_COLUMNS_MAX; i++) {
+      var c = list[i];
+      if (!c || typeof c !== "object" || typeof c.key !== "string" || c.key === "") continue;
+      out[out.length] = {
+        key: c.key,
+        label: clip(typeof c.label === "string" && c.label !== "" ? c.label : c.key, 80),
+        end: c.align === "end",
+        format: typeof c.format === "string" ? c.format : "",
+        sortable: c.sortable === true
+      };
+    }
+    return out;
+  }
+  function tableRows(list) {
+    var out = [];
+    if (!isList(list)) return out;
+    for (var i = 0; i < list.length; i++) out[out.length] = { row: list[i], index: i };
+    return out;
+  }
+  function table(el, spec) {
+    if (!el || typeof el.appendChild !== "function" || !isElement(el)) return NO_TABLE;
+    spec = spec && typeof spec === "object" ? spec : {};
+    var columns = tableColumns(spec.columns);
+    var onRowSelect = typeof spec.onRowSelect === "function" ? spec.onRowSelect : null;
+    var size = toNumber(spec.pageSize);
+    var pageSize = finite(size) && size >= 1 ? M.min(M.floor(size), TABLE_ROWS_MAX) : 25;
+    var entries = tableRows(spec.rows);
+    var order = entries;
+    var shown = pageSize;
+    var sortKey = null;
+    var sortDesc = false;
+    var heads = [];
+
+    var wrap = node("div", "jb-scroll-x");
+    var tableEl = node("table", "jb-table");
+    var caption = node("caption", "", clip(typeof spec.caption === "string" ? spec.caption : "", 200));
+    var thead = node("thead", "");
+    var headRow = node("tr", "");
+    var tbody = node("tbody", "");
+    var more = node("button", "jb-table__more", "Show more");
+    setAttr(more, "type", "button");
+    appendTo(tableEl, caption);
+    appendTo(thead, headRow);
+    appendTo(tableEl, thead);
+    appendTo(tableEl, tbody);
+    appendTo(wrap, tableEl);
+
+    function columnIndex(key) {
+      for (var i = 0; i < columns.length; i++) if (columns[i].key === key) return i;
+      return -1;
+    }
+    function markSort() {
+      for (var i = 0; i < columns.length; i++) {
+        var c = columns[i];
+        if (c.key === sortKey) setAttr(heads[i], "aria-sort", sortDesc ? "descending" : "ascending");
+        else if (c.sortable) setAttr(heads[i], "aria-sort", "none");
+        else dropAttribute(heads[i], "aria-sort");
+      }
+    }
+    function sortEntries() {
+      if (sortKey === null) { order = entries; return; }
+      var key = sortKey;
+      var desc = sortDesc;
+      var copy = [];
+      for (var i = 0; i < entries.length; i++) copy[i] = entries[i];
+      sortList(copy, function (x, y) {
+        var a = cellValue(x.row, key);
+        var b = cellValue(y.row, key);
+        var ma = isMissing(a);
+        var mb = isMissing(b);
+        if (ma || mb) return ma && mb ? x.index - y.index : ma ? 1 : -1;
+        var r = compareCells(a, b);
+        if (desc) r = -r;
+        return r !== 0 ? r : x.index - y.index;
+      });
+      order = copy;
+    }
+    function selectRow(entry) {
+      try { onRowSelect(entry.row, entry.index); } catch (err) { report(errorText(err)); }
+    }
+    function rowNode(entry) {
+      var tr = node("tr", onRowSelect ? "jb-table__row" : "");
+      for (var i = 0; i < columns.length; i++) {
+        var c = columns[i];
+        var td = node("td", c.end ? "jb-num" : "", cellText(cellValue(entry.row, c.key), c.format));
+        appendTo(tr, td);
+      }
+      if (onRowSelect) {
+        setAttr(tr, "tabindex", "0");
+        listen(tr, "click", function () { selectRow(entry); });
+        listen(tr, "keydown", function (e) {
+          if (keyName(e) !== "Enter") return;
+          cancelEvent(e);
+          selectRow(entry);
+        });
+      }
+      return tr;
+    }
+    function render() {
+      clearNode(tbody);
+      var limit = M.min(order.length, TABLE_ROWS_MAX);
+      var count = M.min(shown, limit);
+      for (var i = 0; i < count; i++) appendTo(tbody, rowNode(order[i]));
+      setAttr(more, "class", count < limit ? "jb-table__more" : "jb-table__more jb-hidden");
+    }
+    function sortBy(key, desc) {
+      var at = columnIndex(key);
+      if (at < 0 || !columns[at].sortable) return;
+      sortKey = key;
+      sortDesc = desc;
+      sortEntries();
+      markSort();
+      render();
+    }
+
+    for (var i = 0; i < columns.length; i++) {
+      (function (c) {
+        var th = node("th", c.end ? "jb-num" : "");
+        setAttr(th, "scope", "col");
+        if (c.sortable) {
+          var b = node("button", "jb-table__sort", c.label);
+          setAttr(b, "type", "button");
+          listen(b, "click", function () { sortBy(c.key, sortKey === c.key ? !sortDesc : false); });
+          appendTo(th, b);
+        } else setText(th, c.label);
+        heads[heads.length] = th;
+        appendTo(headRow, th);
+      })(columns[i]);
+    }
+    /* The button hides itself after the last page, so focus moves to the first new row. */
+    listen(more, "click", function () {
+      var before = collectionLength(childrenOf(tbody));
+      shown += pageSize;
+      render();
+      var rows = childrenOf(tbody);
+      if (before >= collectionLength(rows)) return;
+      var first = rows[before];
+      if (!hasAttr(first, "tabindex")) setAttr(first, "tabindex", "-1");
+      focusOn(first);
+    });
+
+    clearNode(el);
+    appendTo(el, wrap);
+    appendTo(el, more);
+    markSort();
+    render();
+
+    return freeze({
+      update: function (rows) {
+        entries = tableRows(rows);
+        shown = pageSize;
+        sortEntries();
+        render();
+      },
+      sort: function (key, dir) {
+        sortBy(textOf(key), dir === "desc" || dir === "descending");
+      }
+    });
   }
 
   var host = {
@@ -506,7 +1505,11 @@ export const KIT_JS: string = `(function () {
     action: function (name, args) {
       post({ type: "action", name: String(name), args: args === undefined ? {} : args });
     },
-    chart: chart
+    chart: chart,
+    el: buildEl,
+    format: format,
+    job: jobOf,
+    table: table
   };
   Object.defineProperty(window, "host", { value: Object.freeze(host), writable: false, configurable: false });
 
@@ -562,6 +1565,557 @@ export const KIT_JS: string = `(function () {
       set value(v) { if (this.jbInput) this.jbInput.value = String(v); else this.setAttribute("value", String(v)); }
     });
   }
+
+  /* PR 5 (spec 08 S9.4): the control elements. Each has a visible label, a 44px target
+     (KIT_CSS), keyboard support, a value property, and fires a bubbling change CustomEvent
+     with detail { name, value } when the user changes it (setting value from script fires
+     nothing). An element that reads child <option> elements (or <jb-tab> children) builds
+     once those are parsed: on DOMContentLoaded while the document is loading, else in a
+     microtask, so script that makes one and appends its options in the same task works.
+     Model code listens on the element itself; a native change event from an inner input
+     is stopped there, so every change event a control sends carries a detail. */
+  var controlCount = 0;
+  function nextId(kind) { controlCount += 1; return "jb-" + kind + "-" + controlCount; }
+  function node(tag, cls, text) {
+    var e = makeEl(document, tag);
+    if (cls) setAttr(e, "class", cls);
+    if (text !== undefined && text !== null) setText(e, textOf(text));
+    return e;
+  }
+  function nameOf(el) { var n = getAttr(el, "name"); return n === null ? "" : n; }
+  function labelOf(el) { var l = getAttr(el, "label"); return l === null || l === "" ? nameOf(el) : l; }
+  function keyName(e) { try { return keyOf ? keyOf(e) : ""; } catch (err) { return ""; } }
+  function focusOn(el) {
+    try { focusHtml(el); return; } catch (err) { /* not an HTML element */ }
+    try { if (focusSvg) focusSvg(el); } catch (err) { /* not focusable */ }
+  }
+  function emitChange(el, value) {
+    var ev;
+    try { ev = new ChangeEvent("change", { bubbles: true, detail: { name: nameOf(el), value: value } }); } catch (err) { return; }
+    dispatch(el, ev);
+  }
+  function whenParsed(cb) {
+    if (readyStateOf(document) === "loading") listen(document, "DOMContentLoaded", cb);
+    else defer(cb);
+  }
+  function defineOnce(name, cls) {
+    if (window.customElements && !customElements.get(name)) customElements.define(name, cls);
+  }
+  function childOptions(el) {
+    var kids = childrenOf(el);
+    var out = [];
+    for (var i = 0; i < collectionLength(kids); i++) if (localNameOf(kids[i]) === "option") out[out.length] = kids[i];
+    return out;
+  }
+  function optionValue(opt) {
+    var v = getAttr(opt, "value");
+    return v === null ? trimText(getText(opt)) : v;
+  }
+  /* The <option> children as { value, label }, taken out of the element. */
+  function takeOptions(el) {
+    var found = childOptions(el);
+    var out = [];
+    for (var i = 0; i < found.length; i++) {
+      out[out.length] = { value: optionValue(found[i]), label: trimText(getText(found[i])) };
+      removeFrom(el, found[i]);
+    }
+    return out;
+  }
+  function indexOfValue(options, v) {
+    for (var i = 0; i < options.length; i++) if (options[i].value === v) return i;
+    return -1;
+  }
+  /* Before an element is built: its value attribute, else its first option's value. */
+  function unbuiltValue(el) {
+    var v = getAttr(el, "value");
+    if (v !== null) return v;
+    var found = childOptions(el);
+    return found.length > 0 ? optionValue(found[0]) : "";
+  }
+  /* Scrolls a list so an item shows, without scrolling anything outside the list. */
+  function keepVisible(list, item) {
+    try {
+      var at = offsetTopOf(item);
+      var h = offsetHeightOf(item);
+      var shown = scrollTopOf(list);
+      var room = clientHeightOf(list);
+      if (at < shown) setScrollTop(list, at);
+      else if (at + h > shown + room) setScrollTop(list, at + h - room);
+    } catch (err) { /* layout unavailable */ }
+  }
+
+  /* <jb-select name label value> with <option value> children: a select-only combobox
+     (focus stays on it, aria-activedescendant names the active option). The popup is in
+     the flow, below the button, so the frame grows to show it instead of clipping it. */
+  function buildSelect(host, st) {
+    if (st.built) return;
+    st.built = true;
+    st.options = takeOptions(host);
+    st.index = indexOfValue(st.options, getAttr(host, "value"));
+    if (st.index < 0 && st.options.length > 0) st.index = 0;
+    var labelId = nextId("label");
+    var listId = nextId("list");
+    var label = node("span", "jb-control__label", labelOf(host));
+    setAttr(label, "id", labelId);
+    var combo = node("span", "jb-select__button");
+    setAttr(combo, "role", "combobox");
+    setAttr(combo, "tabindex", "0");
+    setAttr(combo, "aria-haspopup", "listbox");
+    setAttr(combo, "aria-expanded", "false");
+    setAttr(combo, "aria-controls", listId);
+    setAttr(combo, "aria-labelledby", labelId);
+    var shown = node("span", "jb-select__value", st.index >= 0 ? st.options[st.index].label : "");
+    var caret = node("span", "jb-select__caret");
+    setAttr(caret, "aria-hidden", "true");
+    appendTo(combo, shown);
+    appendTo(combo, caret);
+    var list = node("div", "jb-select__list jb-hidden");
+    setAttr(list, "role", "listbox");
+    setAttr(list, "id", listId);
+    setAttr(list, "aria-labelledby", labelId);
+    var items = [];
+    function onOption(i) { return function () { choose(i); }; }
+    for (var i = 0; i < st.options.length; i++) {
+      var item = node("div", "jb-select__option", st.options[i].label);
+      setAttr(item, "role", "option");
+      setAttr(item, "id", nextId("option"));
+      setAttr(item, "aria-selected", i === st.index ? "true" : "false");
+      listen(item, "click", onOption(i));
+      items[i] = item;
+      appendTo(list, item);
+    }
+    /* A press in the list keeps focus on the combobox, so it does not blur and close first. */
+    listen(list, "mousedown", function (e) { cancelEvent(e); });
+    appendTo(host, label);
+    appendTo(host, combo);
+    appendTo(host, list);
+
+    function show(i) {
+      st.index = i;
+      for (var j = 0; j < items.length; j++) setAttr(items[j], "aria-selected", j === i ? "true" : "false");
+      setText(shown, st.options[i].label);
+    }
+    function setActive(i) {
+      if (st.active >= 0 && items[st.active]) setAttr(items[st.active], "class", "jb-select__option");
+      st.active = i;
+      if (i < 0 || !items[i]) return;
+      setAttr(items[i], "class", "jb-select__option jb-active");
+      setAttr(combo, "aria-activedescendant", getAttr(items[i], "id"));
+      keepVisible(list, items[i]);
+    }
+    function closeList() {
+      if (!st.open) return;
+      st.open = false;
+      setAttr(list, "class", "jb-select__list jb-hidden");
+      setAttr(combo, "aria-expanded", "false");
+      dropAttribute(combo, "aria-activedescendant");
+      setActive(-1);
+      if (openPopup === closeList) openPopup = null;
+    }
+    function openList(at) {
+      if (st.open || items.length === 0) return;
+      if (openPopup) { var other = openPopup; openPopup = null; other(); }
+      st.open = true;
+      setAttr(list, "class", "jb-select__list");
+      setAttr(combo, "aria-expanded", "true");
+      openPopup = closeList;
+      setActive(at < 0 ? 0 : at);
+    }
+    function choose(i) {
+      if (i < 0 || i >= items.length) return;
+      var changed = i !== st.index;
+      show(i);
+      closeList();
+      focusOn(combo);
+      if (changed) emitChange(host, st.options[i].value);
+    }
+    st.show = show;
+    listen(combo, "click", function () { if (st.open) closeList(); else openList(st.index); });
+    listen(combo, "blur", closeList);
+    listen(combo, "keydown", function (e) {
+      var k = keyName(e);
+      var n = items.length;
+      if (n === 0) return;
+      if (!st.open) {
+        if (k === "ArrowDown" || k === "ArrowUp" || k === "Enter" || k === " ") { cancelEvent(e); openList(st.index); }
+        else if (k === "Home") { cancelEvent(e); openList(0); }
+        else if (k === "End") { cancelEvent(e); openList(n - 1); }
+        return;
+      }
+      if (k === "ArrowDown") { cancelEvent(e); setActive(M.min(st.active + 1, n - 1)); }
+      else if (k === "ArrowUp") { cancelEvent(e); setActive(M.max(st.active - 1, 0)); }
+      else if (k === "Home") { cancelEvent(e); setActive(0); }
+      else if (k === "End") { cancelEvent(e); setActive(n - 1); }
+      else if (k === "Enter" || k === " ") { cancelEvent(e); choose(st.active); }
+      else if (k === "Escape") { cancelEvent(e); closeList(); }
+      else if (k === "Tab") closeList();
+    });
+  }
+  defineOnce("jb-select", class extends HTMLElement {
+    connectedCallback() {
+      if (this.jbSelect) return;
+      var self = this;
+      var st = { built: false, options: [], index: -1, active: -1, open: false, show: null };
+      this.jbSelect = st;
+      whenParsed(function () { buildSelect(self, st); });
+    }
+    get value() {
+      var st = this.jbSelect;
+      if (st && st.built) return st.index >= 0 ? st.options[st.index].value : "";
+      return unbuiltValue(this);
+    }
+    set value(v) {
+      var st = this.jbSelect;
+      v = textOf(v);
+      if (st && st.built) {
+        var i = indexOfValue(st.options, v);
+        if (i >= 0 && st.show) st.show(i);
+      } else setAttr(this, "value", v);
+    }
+  });
+
+  /* Number formats, shared by the controls, host.format, host.chart and host.table. Each
+     returns "" for a value that is not a finite number, so a missing figure is never shown
+     as one. Numbers are en-US, as the app's own labels are. */
+  function isNum(n) { return typeof n === "number" && finite(n); }
+  function fmtNumber(n) { return isNum(n) ? numberText(n, "en-US") : ""; }
+  function fmtPercent(ratio) { return isNum(ratio) ? numberText(M.round(ratio * 100), "en-US") + "%" : ""; }
+  function fmtDays(n) {
+    if (!isNum(n)) return "";
+    var d = M.round(n);
+    return d === 1 || d === -1 ? d + " day" : numberText(d, "en-US") + " days";
+  }
+  function fmtCurrency(n) {
+    if (!isNum(n)) return "";
+    var whole = M.round(n);
+    return (whole < 0 ? "-$" : "$") + numberText(M.abs(whole), "en-US");
+  }
+  var VALUE_FORMATS = { number: fmtNumber, percent: fmtPercent, days: fmtDays, currency: fmtCurrency };
+  function formatterOf(name) {
+    return typeof name === "string" && hasOwn(VALUE_FORMATS, name) ? VALUE_FORMATS[name] : fmtNumber;
+  }
+
+  /* An attribute read as a finite number, or the fallback. */
+  function numAttr(el, name, fallback) {
+    var a = getAttr(el, name);
+    if (a === null || trimText(a) === "") return fallback;
+    var v = toNumber(a);
+    return finite(v) ? v : fallback;
+  }
+  function decimalsOf(text) {
+    if (text === null) return 0;
+    var s = trimText(textOf(text));
+    var dot = -1;
+    for (var i = 0; i < s.length; i++) if (s[i] === ".") dot = i;
+    return dot < 0 ? 0 : M.min(s.length - dot - 1, 10);
+  }
+
+  /* <jb-slider name label min max step value format>: a native range input with a visible
+     label and its current value shown beside it (format: "number", "percent" of a ratio,
+     "days" or "currency"; default "number"). The kit steps it on the arrow, Page, Home and
+     End keys itself, so every browser steps alike; a drag arrives as the native input
+     event. value is a number, snapped to the step and clamped. */
+  function buildSlider(host, st) {
+    if (st.built) return;
+    st.built = true;
+    var min = numAttr(host, "min", 0);
+    var max = numAttr(host, "max", 100);
+    if (max < min) max = min;
+    var step = numAttr(host, "step", 1);
+    if (!(step > 0)) step = 1;
+    var decimals = M.max(decimalsOf(getAttr(host, "step")), decimalsOf(getAttr(host, "min")));
+    var format = formatterOf(getAttr(host, "format"));
+    var inputId = nextId("slider");
+    var label = node("label", "jb-control__label", labelOf(host));
+    setAttr(label, "for", inputId);
+    var row = node("div", "jb-slider__row");
+    var input = node("input", "jb-slider__input");
+    setAttr(input, "type", "range");
+    setAttr(input, "id", inputId);
+    setAttr(input, "min", textOf(min));
+    setAttr(input, "max", textOf(max));
+    setAttr(input, "step", textOf(step));
+    var out = node("span", "jb-slider__value");
+    setAttr(out, "aria-hidden", "true");
+    appendTo(row, input);
+    appendTo(row, out);
+    appendTo(host, label);
+    appendTo(host, row);
+    function snap(v) {
+      if (!isNum(v)) v = min;
+      v = min + M.round((v - min) / step) * step;
+      if (v > max) v = max;
+      if (v < min) v = min;
+      return toNumber(fixedText(v, decimals));
+    }
+    function set(v) {
+      st.value = snap(v);
+      setInputValue(input, textOf(st.value));
+      var text = format(st.value);
+      setText(out, text);
+      setAttr(input, "aria-valuetext", text);
+    }
+    function user(v) {
+      var before = st.value;
+      set(v);
+      if (st.value !== before) emitChange(host, st.value);
+    }
+    st.set = set;
+    set(numAttr(host, "value", min));
+    var page = M.max(step, (max - min) / 10);
+    listen(input, "keydown", function (e) {
+      var k = keyName(e);
+      var next = null;
+      if (k === "ArrowRight" || k === "ArrowUp") next = st.value + step;
+      else if (k === "ArrowLeft" || k === "ArrowDown") next = st.value - step;
+      else if (k === "PageUp") next = st.value + page;
+      else if (k === "PageDown") next = st.value - page;
+      else if (k === "Home") next = min;
+      else if (k === "End") next = max;
+      if (next === null) return;
+      cancelEvent(e);
+      user(next);
+    });
+    listen(input, "input", function () { user(toNumber(inputValueOf(input))); });
+    listen(input, "change", function (e) { stopEvent(e); });
+  }
+  defineOnce("jb-slider", class extends HTMLElement {
+    connectedCallback() {
+      if (this.jbSlider) return;
+      var st = { built: false, value: 0, set: null };
+      this.jbSlider = st;
+      buildSlider(this, st);
+    }
+    get value() {
+      var st = this.jbSlider;
+      return st && st.built ? st.value : numAttr(this, "value", numAttr(this, "min", 0));
+    }
+    set value(v) {
+      var st = this.jbSlider;
+      if (st && st.built && st.set) st.set(toNumber(v)); else setAttr(this, "value", textOf(v));
+    }
+  });
+
+  /* <jb-toggle name label checked>: a switch whose label is its own visible text, so the
+     whole row is the target. value (and checked) is a boolean. */
+  function buildToggle(host, st) {
+    if (st.built) return;
+    st.built = true;
+    var sw = node("span", "jb-toggle__switch");
+    setAttr(sw, "role", "switch");
+    setAttr(sw, "tabindex", "0");
+    var track = node("span", "jb-toggle__track");
+    setAttr(track, "aria-hidden", "true");
+    appendTo(track, node("span", "jb-toggle__thumb"));
+    appendTo(sw, track);
+    appendTo(sw, node("span", "jb-control__label jb-toggle__label", labelOf(host)));
+    appendTo(host, sw);
+    function set(v) {
+      st.value = v === true;
+      setAttr(sw, "aria-checked", st.value ? "true" : "false");
+    }
+    function flip() {
+      set(!st.value);
+      emitChange(host, st.value);
+    }
+    st.set = set;
+    set(hasAttr(host, "checked") && getAttr(host, "checked") !== "false");
+    listen(sw, "click", flip);
+    listen(sw, "keydown", function (e) {
+      var k = keyName(e);
+      if (k !== " " && k !== "Enter") return;
+      cancelEvent(e);
+      flip();
+    });
+  }
+  function toggleValue(el) {
+    var st = el.jbToggle;
+    return st && st.built ? st.value : hasAttr(el, "checked") && getAttr(el, "checked") !== "false";
+  }
+  function setToggle(el, v) {
+    var st = el.jbToggle;
+    v = v === true || v === "true";
+    if (st && st.built && st.set) st.set(v);
+    else if (v) setAttr(el, "checked", ""); else dropAttribute(el, "checked");
+  }
+  defineOnce("jb-toggle", class extends HTMLElement {
+    connectedCallback() {
+      if (this.jbToggle) return;
+      var st = { built: false, value: false, set: null };
+      this.jbToggle = st;
+      buildToggle(this, st);
+    }
+    get value() { return toggleValue(this); }
+    set value(v) { setToggle(this, v); }
+    get checked() { return toggleValue(this); }
+    set checked(v) { setToggle(this, v); }
+  });
+
+  /* The index an arrow, Home or End key moves to from i in a row of n items (wrapping), or
+     -1 for any other key. */
+  function rovingTarget(k, i, n) {
+    if (k === "ArrowRight" || k === "ArrowDown") return (i + 1) % n;
+    if (k === "ArrowLeft" || k === "ArrowUp") return (i - 1 + n) % n;
+    if (k === "Home") return 0;
+    if (k === "End") return n - 1;
+    return -1;
+  }
+
+  /* <jb-segmented name label value> with <option value> children: a radiogroup of
+     buttons in a row, one tab stop (roving tabindex); the arrow keys move and select. */
+  function buildSegmented(host, st) {
+    if (st.built) return;
+    st.built = true;
+    st.options = takeOptions(host);
+    st.index = indexOfValue(st.options, getAttr(host, "value"));
+    if (st.index < 0 && st.options.length > 0) st.index = 0;
+    var labelId = nextId("label");
+    var label = node("span", "jb-control__label", labelOf(host));
+    setAttr(label, "id", labelId);
+    var group = node("div", "jb-segmented__group");
+    setAttr(group, "role", "radiogroup");
+    setAttr(group, "aria-labelledby", labelId);
+    var radios = [];
+    function show(i) {
+      st.index = i;
+      for (var j = 0; j < radios.length; j++) {
+        setAttr(radios[j], "aria-checked", j === i ? "true" : "false");
+        setAttr(radios[j], "tabindex", j === i ? "0" : "-1");
+      }
+    }
+    function pick(i, focus) {
+      var changed = i !== st.index;
+      show(i);
+      if (focus) focusOn(radios[i]);
+      if (changed) emitChange(host, st.options[i].value);
+    }
+    function wire(i) {
+      listen(radios[i], "click", function () { pick(i, true); });
+      listen(radios[i], "keydown", function (e) {
+        var k = keyName(e);
+        if (k === " " || k === "Enter") { cancelEvent(e); pick(i, false); return; }
+        var to = rovingTarget(k, i, radios.length);
+        if (to < 0) return;
+        cancelEvent(e);
+        pick(to, true);
+      });
+    }
+    for (var i = 0; i < st.options.length; i++) {
+      var radio = node("span", "jb-segmented__option", st.options[i].label);
+      setAttr(radio, "role", "radio");
+      radios[i] = radio;
+      appendTo(group, radio);
+      wire(i);
+    }
+    st.show = show;
+    if (st.index >= 0) show(st.index);
+    appendTo(host, label);
+    appendTo(host, group);
+  }
+  defineOnce("jb-segmented", class extends HTMLElement {
+    connectedCallback() {
+      if (this.jbSegmented) return;
+      var self = this;
+      var st = { built: false, options: [], index: -1, show: null };
+      this.jbSegmented = st;
+      whenParsed(function () { buildSegmented(self, st); });
+    }
+    get value() {
+      var st = this.jbSegmented;
+      if (st && st.built) return st.index >= 0 ? st.options[st.index].value : "";
+      return unbuiltValue(this);
+    }
+    set value(v) {
+      var st = this.jbSegmented;
+      v = textOf(v);
+      if (st && st.built) {
+        var i = indexOfValue(st.options, v);
+        if (i >= 0 && st.show) st.show(i);
+      } else setAttr(this, "value", v);
+    }
+  });
+
+  /* <jb-tabs name label value> with <jb-tab label> children: a tablist the kit puts before
+     the panels, one tab stop (roving tabindex), arrow, Home and End keys move and select
+     (automatic activation), and only the selected panel shows. value is the index. */
+  function buildTabs(host, st) {
+    if (st.built) return;
+    st.built = true;
+    var kids = childrenOf(host);
+    var panels = [];
+    for (var i = 0; i < collectionLength(kids); i++) if (localNameOf(kids[i]) === "jb-tab") panels[panels.length] = kids[i];
+    st.count = panels.length;
+    var list = node("div", "jb-tabs__list");
+    setAttr(list, "role", "tablist");
+    var label = getAttr(host, "label");
+    if (label !== null && label !== "") setAttr(list, "aria-label", label);
+    var tabs = [];
+    function show(i) {
+      st.index = i;
+      for (var j = 0; j < tabs.length; j++) {
+        setAttr(tabs[j], "aria-selected", j === i ? "true" : "false");
+        setAttr(tabs[j], "tabindex", j === i ? "0" : "-1");
+        if (j === i) dropAttribute(panels[j], "hidden"); else setAttr(panels[j], "hidden", "");
+      }
+    }
+    function pick(i, focus) {
+      var changed = i !== st.index;
+      show(i);
+      if (focus) focusOn(tabs[i]);
+      if (changed) emitChange(host, i);
+    }
+    function wire(i) {
+      listen(tabs[i], "click", function () { pick(i, true); });
+      listen(tabs[i], "keydown", function (e) {
+        var k = keyName(e);
+        if (k === " " || k === "Enter") { cancelEvent(e); pick(i, false); return; }
+        var to = rovingTarget(k, i, tabs.length);
+        if (to < 0) return;
+        cancelEvent(e);
+        pick(to, true);
+      });
+    }
+    for (var t = 0; t < panels.length; t++) {
+      var tabId = nextId("tab");
+      var panelId = getAttr(panels[t], "id") || nextId("panel");
+      var tab = node("span", "jb-tabs__tab", getAttr(panels[t], "label") || "Tab " + (t + 1));
+      setAttr(tab, "role", "tab");
+      setAttr(tab, "id", tabId);
+      setAttr(tab, "aria-controls", panelId);
+      setAttr(panels[t], "id", panelId);
+      setAttr(panels[t], "role", "tabpanel");
+      setAttr(panels[t], "aria-labelledby", tabId);
+      setAttr(panels[t], "tabindex", "0");
+      tabs[t] = tab;
+      appendTo(list, tab);
+      wire(t);
+    }
+    insertInto(host, list, firstChildOf(host));
+    st.show = show;
+    var start = M.floor(numAttr(host, "value", 0));
+    if (panels.length > 0) show(start >= 0 && start < panels.length ? start : 0);
+  }
+  defineOnce("jb-tabs", class extends HTMLElement {
+    connectedCallback() {
+      if (this.jbTabs) return;
+      var self = this;
+      var st = { built: false, index: -1, count: 0, show: null };
+      this.jbTabs = st;
+      whenParsed(function () { buildTabs(self, st); });
+    }
+    get value() {
+      var st = this.jbTabs;
+      if (st && st.built) return st.index < 0 ? 0 : st.index;
+      return M.floor(numAttr(this, "value", 0));
+    }
+    set value(v) {
+      var st = this.jbTabs;
+      var i = M.floor(toNumber(v));
+      if (st && st.built) {
+        if (i >= 0 && i < st.count && st.show) st.show(i);
+      } else if (finite(i)) setAttr(this, "value", textOf(i));
+    }
+  });
 
   function measure() {
     var h = Math.ceil(document.documentElement.getBoundingClientRect().height || 0);

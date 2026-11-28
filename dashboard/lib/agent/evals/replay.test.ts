@@ -18,7 +18,7 @@ import { parseGathered } from "@/lib/agent/gatheredSchema";
 const entries = listReplaySurfaces();
 
 describe("the replay list", () => {
-  test("holds the 7 golden surfaces and the 4 hand-written fixtures, two per variant", () => {
+  test("holds the 7 golden surfaces and the 5 hand-written fixtures: two variant 2, three variant 3 (one for the PR 5 kit)", () => {
     const golden = entries.filter((e) => e.source === "v1" && e.handwritten);
     expect(golden).toHaveLength(7);
     expect(golden.every((e) => e.variant === 1)).toBe(true);
@@ -27,6 +27,7 @@ describe("the replay list", () => {
       ["fixture/v2-compare.json", 2],
       ["fixture/v2-weekly.json", 2],
       ["fixture/v3-compare.json", 3],
+      ["fixture/v3-kit-controls.json", 3],
       ["fixture/v3-weekly.json", 3],
     ]);
     expect(new Set(entries.map((e) => e.name)).size).toBe(entries.length);

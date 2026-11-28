@@ -91,6 +91,8 @@ export const SANDBOX_CASE_NAMES = [
   // reloads; Escape inside the frame closes the expanded view.
   "expand-no-reload",
   "escape-from-frame",
+  // PR 5 (spec 08 S9.4, S9.5): every new kit control, a chart with onSelect and a table.
+  "kit-controls",
 ] as const;
 export type SandboxCaseName = (typeof SANDBOX_CASE_NAMES)[number];
 
@@ -862,6 +864,54 @@ document.addEventListener("keydown", function (e) {
 });
 host.onInit(function () {
   P("init", true);
+  P("done");
+});
+</script>`) }],
+  },
+  "kit-controls": {
+    title: "A benign view with every kit control, a selectable chart and a table: the keyboard changes what is shown, nothing leaves",
+    frames: [{ tag: "kit-controls", html: doc("kit-controls", `<div class="jb-stack">
+<h2 class="jb-h2">Kit controls</h2>
+<div class="jb-row">
+<jb-select id="stage" name="stage" label="Stage" value="all"><option value="all">All</option><option value="applied">Applied</option><option value="offer">Offer</option></jb-select>
+<jb-segmented id="range" name="range" label="Range" value="month"><option value="week">Week</option><option value="month">Month</option></jb-segmented>
+<jb-toggle id="remote" name="remote" label="Remote only"></jb-toggle>
+</div>
+<jb-slider id="fit" name="fit" label="Minimum fit" min="0" max="100" step="5" value="40"></jb-slider>
+<jb-tabs id="views" name="view" label="Views" value="0"><jb-tab label="Summary"><p id="summary">Three stages.</p></jb-tab><jb-tab label="Notes"><p id="notes">No notes yet.</p></jb-tab></jb-tabs>
+<div id="chart"></div>
+<div id="table"></div>
+<p>Picked: <span id="picked">none</span></p>
+<jb-button id="secondary" variant="secondary">Reset</jb-button>
+</div>
+<script>
+function detailOf(e) { return e.detail ? e.detail.value : null; }
+document.getElementById("stage").addEventListener("change", function (e) { P("select", detailOf(e)); });
+document.getElementById("range").addEventListener("change", function (e) { P("segmented", detailOf(e)); });
+document.getElementById("remote").addEventListener("change", function (e) { P("toggle", detailOf(e)); });
+document.getElementById("fit").addEventListener("change", function (e) { P("slider", detailOf(e)); });
+document.getElementById("views").addEventListener("change", function (e) { P("tab", detailOf(e)); });
+function picked(text) {
+  document.getElementById("picked").textContent = text;
+  P("picked", text);
+}
+host.onInit(function () {
+  P("init", true);
+  host.chart(document.getElementById("chart"), {
+    viz: "bar",
+    title: "Roles by stage",
+    points: [{ label: "Ready", value: 4 }, { label: "Applied", value: 2 }, { label: "Offer", value: 1 }],
+    onSelect: function (p) { picked(p.label + " " + p.value); }
+  });
+  host.table(document.getElementById("table"), {
+    caption: "Stages",
+    columns: [
+      { key: "stage", label: "Stage", sortable: true },
+      { key: "roles", label: "Roles", align: "end", sortable: true }
+    ],
+    rows: [{ stage: "Ready", roles: 4 }, { stage: "Applied", roles: 2 }, { stage: "Offer", roles: 1 }],
+    onRowSelect: function (row, index) { picked(row.stage + " row " + index); }
+  });
   P("done");
 });
 </script>`) }],

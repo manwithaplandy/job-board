@@ -51,7 +51,7 @@ import {
 import { catalogNow } from "@/lib/catalogClock";
 import { flushLangfuseTraces } from "@/lib/observability";
 import { loadAppSettings } from "@/lib/appSettings";
-import { AGENT_LIMITS, AGENT_MODEL_DEFAULT, type Variant } from "@/lib/agent/config";
+import { AGENT_LIMITS, AGENT_MODEL_DEFAULT, outputTokensFor, type Variant } from "@/lib/agent/config";
 import { presentVariant } from "@/lib/agent/variants";
 import { AGENT_DOCUMENTS_MAX, AGENT_TEXT_MAX, isViewMessageId } from "@/lib/agent/request";
 import { stepCostMicros } from "@/lib/agent/budget";
@@ -623,7 +623,8 @@ async function runTurn(a: TurnArgs, variant: Variant): Promise<Response> {
       // charge, the wall clock), so no further step starts even before the abort lands.
       // The third: the turn ends at an ask_user call, whose answers come next turn.
       stopWhen: [isStepCount(AGENT_LIMITS.maxSteps), () => stopReason !== null, hasToolCall("ask_user")],
-      maxOutputTokens: AGENT_LIMITS.maxOutputTokens,
+      // PR 7 (spec 08 S9.6): 8000 for a variant 3 turn, 4000 otherwise.
+      maxOutputTokens: outputTokensFor(ctx.variant),
       abortSignal: controller.signal,
       telemetry: { functionId: "agent-turn" },
       onEnd: async () => {

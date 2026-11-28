@@ -26,7 +26,7 @@ import { generateText, isStepCount, tool, type LanguageModel, type StopCondition
 import { z } from "zod";
 import { withUserSql } from "@/lib/db";
 import { parseOrNull } from "@/lib/zodParse";
-import { AGENT_EVAL_MODELS, AGENT_LIMITS, AGENT_MODEL_DEFAULT, type Variant } from "@/lib/agent/config";
+import { AGENT_EVAL_MODELS, AGENT_LIMITS, AGENT_MODEL_DEFAULT, outputTokensFor, type Variant } from "@/lib/agent/config";
 import { checkBudget, stepCostMicros, type BudgetState } from "@/lib/agent/budget";
 import { variantGrammar } from "@/lib/agent/context";
 import type { GatheredData } from "@/lib/agent/gathered";
@@ -240,7 +240,8 @@ export async function rerenderSurface(userId: string, a: RerenderArgs, deps: Rer
         tools: { present: oneSurfacePresent(ctx, stored) },
         toolChoice: { type: "tool", toolName: "present" },
         stopWhen: [isStepCount(RERENDER_MAX_STEPS), settled],
-        maxOutputTokens: AGENT_LIMITS.maxOutputTokens,
+        // PR 7 (spec 08 S9.6): the target variant's limit, 8000 for variant 3.
+        maxOutputTokens: outputTokensFor(a.variant),
         abortSignal: controller.signal,
         telemetry: { functionId: "agent-rerender" },
         onStepEnd: async (step) => {

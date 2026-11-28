@@ -250,6 +250,18 @@ describe("rerenderSurface", () => {
     expect(JSON.stringify(on.doGenerateCalls[0].prompt)).toContain("host.onInit");
   });
 
+  test("PR 7: a re-render into variant 3 may emit 8000 output tokens; into variants 1 and 2, 4000", async () => {
+    const v3 = scripted([[presentCall(V3)]]);
+    await run(v3, 3).out;
+    expect(v3.doGenerateCalls[0].maxOutputTokens).toBe(8000);
+    const v2 = scripted([[presentCall(V2)]]);
+    await run(v2, 2).out;
+    expect(v2.doGenerateCalls[0].maxOutputTokens).toBe(4000);
+    const v1 = scripted([[presentCall(V1)]]);
+    await run(v1, 1).out;
+    expect(v1.doGenerateCalls[0].maxOutputTokens).toBe(4000);
+  });
+
   test("a variant 3 source whose frame failed at runtime is refused a variant 3 target: no run, no model call, no charge", async () => {
     vi.mocked(getSurface).mockResolvedValue(
       source({ variant: 3, payload: V3, fallbackPayload: V1, outcome: "fallback", failure: "self_navigation" }),

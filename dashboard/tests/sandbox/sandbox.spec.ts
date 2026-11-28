@@ -1435,36 +1435,80 @@ test.describe("a view's ask (PR 6)", () => {
       const text = pending.locator(".rf-ask__text");
       const send = pending.locator("[data-sandbox-ask-send]");
 
-      const clickedAt = Date.now();
-      expect(await clickInFrame(run, "#ask"), `${run.at}: the ask button was clicked`).toBe(true);
-      await expect(text, `${run.at}: the swapped text replaced the first`).toHaveText(HARNESS_ASK_SWAPPED, { timeout: 3_000 });
-
-      // A press 300 ms after the click lands 200 ms after the swap, inside CHIP_ARM_MS: nothing is sent.
-      const wait = 300 - (Date.now() - clickedAt);
-      if (wait > 0) await page.waitForTimeout(wait);
-      const box = await send.boundingBox();
-      expect(box, `${run.at}: Send has a box`).not.toBeNull();
-      await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
-      await waitForProbe(run, "ask-swap", "swap", 1_000);
-      const swap = probeValue(run.probes, "ask-swap", "swap") as { posted?: boolean; at?: number } | undefined;
-      expect(swap?.posted, `${run.at}: the swap posted inside the click's activation`).toBe(true);
-      const sinceSwap = Date.now() - Number(swap?.at);
-      if (Number.isFinite(sinceSwap) && sinceSwap < CHIP_ARM_MS - 100) {
-        expect(await asksSent(page), `${run.at}: a press ${sinceSwap} ms after the swap sent something`).toEqual([]);
+      // PR 6 review, minor 5: the early press is measured on the host page's own clock, from the
+      // moment the swapped text is on screen (a MutationObserver) to the moment of the press
+      // (a capture-phase pointerdown on Send), and it is made only while it can still land
+      // inside CHIP_ARM_MS. A slow attempt is dismissed and tried again (each attempt is two
+      // asks, so three stay under the per-minute limit); if none lands in time, the case fails.
+      await page.evaluate((swapped) => {
+        const rec = { shownAt: null as number | null, pressAt: null as number | null };
+        (window as unknown as { __askSwap: typeof rec }).__askSwap = rec;
+        new MutationObserver(() => {
+          if (rec.shownAt !== null) return;
+          if (document.querySelector("[data-sandbox-ask] .rf-ask__text")?.textContent === swapped) rec.shownAt = performance.now();
+        }).observe(document.documentElement, { subtree: true, childList: true, characterData: true });
+        document.addEventListener(
+          "pointerdown",
+          (e) => {
+            if (rec.pressAt === null && e.target instanceof Element && e.target.closest("[data-sandbox-ask-send]")) rec.pressAt = performance.now();
+          },
+          true,
+        );
+      }, HARNESS_ASK_SWAPPED);
+      type SwapClock = { shownAt: number | null; pressAt: number | null; now: number };
+      const swapClock = () =>
+        page.evaluate((): SwapClock => {
+          const rec = (window as unknown as { __askSwap: { shownAt: number | null; pressAt: number | null } }).__askSwap;
+          return { shownAt: rec.shownAt, pressAt: rec.pressAt, now: performance.now() };
+        });
+      const resetSwapClock = () =>
+        page.evaluate(() => {
+          const rec = (window as unknown as { __askSwap: { shownAt: number | null; pressAt: number | null } }).__askSwap;
+          rec.shownAt = null;
+          rec.pressAt = null;
+        });
+      // Room left for the press itself and for the render after the text appears.
+      const PRESS_BY_MS = CHIP_ARM_MS - 250;
+      const LANDED_BY_MS = CHIP_ARM_MS - 100;
+      const tries: string[] = [];
+      let shownAt: number | null = null;
+      for (let attempt = 1; attempt <= 3 && shownAt === null; attempt++) {
+        await resetSwapClock();
+        expect(await clickInFrame(run, "#ask"), `${run.at}: the ask button was clicked (attempt ${attempt})`).toBe(true);
+        await expect(text, `${run.at}: the swapped text replaced the first (attempt ${attempt})`).toHaveText(HARNESS_ASK_SWAPPED, { timeout: 3_000 });
+        const box = await send.boundingBox();
+        expect(box, `${run.at}: Send has a box`).not.toBeNull();
+        const before = await swapClock();
+        if (before.shownAt === null || before.now - before.shownAt > PRESS_BY_MS) {
+          tries.push(`attempt ${attempt}: ${before.shownAt === null ? "the swap was not observed" : `${Math.round(before.now - before.shownAt)} ms had passed before the press`}`);
+          await pending.getByRole("button", { name: `Dismiss: ${HARNESS_ASK_SWAPPED}` }).click();
+          await expect(pending, `${run.at}: Dismiss cleared the pending message`).toHaveCount(0);
+          continue;
+        }
+        await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+        const after = await swapClock();
+        expect(after.pressAt, `${run.at}: the press reached Send`).not.toBeNull();
+        const elapsed = after.pressAt! - before.shownAt;
+        // Past PRESS_BY_MS the press could have armed and sent: a failure, never a skip.
+        expect(elapsed, `${run.at}: the early press landed ${Math.round(elapsed)} ms after the swapped text appeared, too late to test the arm window`).toBeLessThan(LANDED_BY_MS);
+        expect(await asksSent(page), `${run.at}: a press ${Math.round(elapsed)} ms after the swap sent something`).toEqual([]);
         await expect(pending, `${run.at}: the early press left the pending message`).toHaveCount(1);
-        run.note(`The early press landed about ${sinceSwap} ms after the frame's swap and sent nothing.`);
-      } else {
-        run.note(`Early press inconclusive: it landed ${sinceSwap} ms after the frame's swap, too late to test the arm window.`);
+        await expect(text, `${run.at}: the swapped text is still the one on screen`).toHaveText(HARNESS_ASK_SWAPPED);
+        run.note(`The early press landed about ${Math.round(elapsed)} ms after the swapped text appeared and sent nothing (attempt ${attempt}).`);
+        shownAt = before.shownAt;
       }
+      expect(shownAt, `${run.at}: no early press could be made inside the arm window: ${tries.join("; ")}`).not.toBeNull();
+      expect(await waitForProbe(run, "ask-swap", "swap", 2_000), `${run.at}: the view's swap ran`).toBe(true);
+      const swap = probeValue(run.probes, "ask-swap", "swap") as { posted?: boolean } | undefined;
+      expect(swap?.posted, `${run.at}: the swap posted inside the click's activation`).toBe(true);
 
-      // 800 ms after the swap the new text is armed: Send sends exactly what is on screen.
-      const until = Number(swap?.at) + CHIP_ARM_MS + 100 - Date.now();
+      // CHIP_ARM_MS + 100 after the swapped text appeared it is armed: Send sends exactly what is on screen.
+      const now = (await swapClock()).now;
+      const until = shownAt! + CHIP_ARM_MS + 100 - now;
       if (until > 0) await page.waitForTimeout(until);
-      if ((await asksSent(page)).length === 0) {
-        await expect(text, `${run.at}: the text on screen`).toHaveText(HARNESS_ASK_SWAPPED);
-        await expect(send, `${run.at}: Send names the text on screen`).toHaveAttribute("aria-label", `Send: ${HARNESS_ASK_SWAPPED}`);
-        await send.click();
-      }
+      await expect(text, `${run.at}: the text on screen`).toHaveText(HARNESS_ASK_SWAPPED);
+      await expect(send, `${run.at}: Send names the text on screen`).toHaveAttribute("aria-label", `Send: ${HARNESS_ASK_SWAPPED}`);
+      await send.click();
       await expect(pending, `${run.at}: Send cleared the pending message`).toHaveCount(0);
       await finishCase(run, 500);
       expectNoHits(run);

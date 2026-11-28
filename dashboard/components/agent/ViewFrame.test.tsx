@@ -339,6 +339,33 @@ describe("expand", () => {
     expect(document.activeElement).toBe(button);
   });
 
+  test("a collapse with focus in the view's iframe (Escape pressed in the frame) blurs the iframe and focuses the window first", () => {
+    const chain = original();
+    const view = (expanded: boolean) => frame(chain, true, vi.fn(), { expanded, children: <iframe title="frame" /> });
+    const { container, rerender } = render(view(true));
+    const iframe = container.querySelector("iframe")!;
+    iframe.focus();
+    expect(document.activeElement).toBe(iframe);
+    const blur = vi.spyOn(iframe, "blur");
+    const focusWindow = vi.spyOn(window, "focus").mockImplementation(() => {});
+    rerender(view(false));
+    expect(blur).toHaveBeenCalledTimes(1);
+    expect(focusWindow).toHaveBeenCalledTimes(1);
+    expect(blur.mock.invocationCallOrder[0]).toBeLessThan(focusWindow.mock.invocationCallOrder[0]);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /Expand view/ }));
+    focusWindow.mockRestore();
+  });
+
+  test("with focus already in the page, a collapse neither blurs nor focuses the window", () => {
+    const chain = original();
+    const { rerender } = render(frame(chain, true, vi.fn(), { expanded: true }));
+    const focusWindow = vi.spyOn(window, "focus").mockImplementation(() => {});
+    rerender(frame(chain, true, vi.fn(), { expanded: false }));
+    expect(focusWindow).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /Expand view/ }));
+    focusWindow.mockRestore();
+  });
+
   test("a frame mounted expanded (its chain moved to a newer message) takes focus only when nothing else has it", () => {
     const outside = document.createElement("input");
     document.body.appendChild(outside);

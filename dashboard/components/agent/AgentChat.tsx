@@ -42,7 +42,7 @@ import { AgentMarkdown } from "./AgentMarkdown";
 import { StepsRow } from "./StepsRow";
 import { ExpandedStatus, turnOutcome, type ExpandedOutcome } from "./ExpandedStatus";
 import { frameOfChain, useExpandedDock } from "./useExpandedDock";
-import { ViewFrame } from "./ViewFrame";
+import { focusInPage, ViewFrame } from "./ViewFrame";
 import { ViewLoadFailed, ViewPlaceholder, ViewUpdatedStub } from "./ViewPlaceholder";
 import { useExpandedView } from "./useExpandedView";
 
@@ -871,7 +871,8 @@ export function AgentChat({
       const message = [...(chatRef.current?.querySelectorAll<HTMLElement>(".rf-agent-message") ?? [])].find((el) => el.dataset.messageId === target);
       if (message && typeof message.scrollIntoView === "function") message.scrollIntoView({ block: "start" });
     }
-    if (!frameOfChain(chatRef.current, was)) dockRef.current?.querySelector<HTMLElement>("textarea")?.focus({ preventScroll: true });
+    const textarea = dockRef.current?.querySelector<HTMLElement>("textarea");
+    if (textarea && !frameOfChain(chatRef.current, was)) focusInPage(textarea);
   }, [expandedChainId, dockRef]);
   // Keyed by chain, never by row: an update or a version switch keeps the frame (spec 08 S5).
   const chainView = (chain: HostChain) => (

@@ -43,6 +43,23 @@ export const CLOSE_FADE_MS = 150;
 
 type Fade = "open" | "close" | null;
 
+/**
+ * Focuses a control in this page, also when focus is inside a view's sandbox iframe (an
+ * Escape pressed in the frame). Chromium and WebKit move focus out of the frame on
+ * element.focus() alone; Firefox keeps the frame's browsing context focused, so the page's
+ * activeElement stays the iframe. Blurring the iframe gives focus back to this document,
+ * and focusing the window makes it the focused browsing context, before the control takes
+ * focus. With focus already in the page (Close, Escape on the page) this is a plain focus.
+ */
+export function focusInPage(el: HTMLElement): void {
+  const active = document.activeElement;
+  if (active instanceof HTMLIFrameElement) {
+    active.blur();
+    window.focus();
+  }
+  el.focus({ preventScroll: true });
+}
+
 function prefersReducedMotion(): boolean {
   return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
@@ -137,7 +154,7 @@ export function ViewFrame({
       if (expanded && (active === null || active === document.body)) button.focus({ preventScroll: true });
       return;
     }
-    if (before !== expanded) button.focus({ preventScroll: true });
+    if (before !== expanded) focusInPage(button);
   }, [expanded]);
 
   return (

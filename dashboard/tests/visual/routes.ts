@@ -25,6 +25,10 @@ export interface VisualRoute {
   /** A test driver rather than a product surface: declared so the inventory stays complete,
    *  and skipped by the screenshot matrix (no baseline). The value says which suite drives it. */
   harness?: string;
+  /** Screenshot the viewport, not the full page: an expanded agent view (spec 08 S6.1) is
+   *  fixed to the viewport with the page's scrolling off, and a full-page capture would lay
+   *  the fixed view out again at the document's height. */
+  viewportOnly?: true;
 }
 
 const fixture = (family: VisualFamily, state: string): VisualRoute => ({
@@ -105,6 +109,9 @@ export const VISUAL_ROUTES: VisualRoute[] = [
   // "updated below" stub with the updated view, and a layout view shown as blocks with
   // the "could not be built" caption.
   ...["empty", "conversation", "surface", "failed", "blocks", "layout", "code", "steps-working", "steps-done", "steps-open", "view-building", "view-updated", "view-degraded"].map((state) => fixture("agent", `page-${state}`)),
+  // Expand (spec 08 S6): a blocks view and a code (variant 3) view expanded over the page,
+  // with the dock at the bottom.
+  ...["view-expanded", "code-expanded"].map((state): VisualRoute => ({ ...fixture("agent", `page-${state}`), viewportOnly: true })),
   fixture("workspaces", "empty"), fixture("workspaces", "agent-marker"), fixture("workspaces", "memo-diff"),
   fixture("system-states", "focus"), fixture("system-states", "destructive"),
 ];

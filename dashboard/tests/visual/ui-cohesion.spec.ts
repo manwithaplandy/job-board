@@ -91,7 +91,7 @@ for (const viewport of VIEWPORTS) {
             // Applied only after the runtime contracts have run against the full page.
             if (route.live?.hide.length) await page.addStyleTag({ content: `${route.live.hide.join(",\n")} { display: none !important; }` });
             await expect(page).toHaveScreenshot(`${route.id}-${viewport.id}-${theme}.png`, {
-              fullPage: true,
+              fullPage: !route.viewportOnly,
               mask: route.live?.mask.map((selector) => page.locator(selector)),
             });
           });

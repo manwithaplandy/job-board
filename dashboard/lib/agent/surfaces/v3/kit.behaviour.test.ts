@@ -126,8 +126,45 @@ beforeAll(() => {
   // PR 6: navigator.userActivation, as browsers have it (an object whose isActive is a getter
   // on its prototype), with the activation state set by the test.
   shadow.navigator = { userActivation: fakeActivation };
+  // Polish wave, item A: jsdom has no layout and no ResizeObserver. The kit takes both natives
+  // as it starts, so the stand-ins go in first: an SVG inside an element marked
+  // data-test-width reports that width, and every ResizeObserver the kit makes is recorded.
+  Element.prototype.getBoundingClientRect = function (this: Element) {
+    const holder = this.parentElement?.closest("[data-test-width]");
+    if (holder && this.localName === "svg") {
+      const width = Number(holder.getAttribute("data-test-width"));
+      return { x: 0, y: 0, left: 0, top: 0, right: width, bottom: 0, width, height: 0, toJSON: () => ({}) };
+    }
+    return realRect.call(this);
+  };
+  Reflect.set(globalThis, "ResizeObserver", FakeResizeObserver);
   new Function("parent", "window", KIT_JS)(fakeParent, kitWindow);
 });
+
+const realRect = Element.prototype.getBoundingClientRect;
+const realResizeObserver: unknown = Reflect.get(globalThis, "ResizeObserver");
+class FakeResizeObserver {
+  static made: FakeResizeObserver[] = [];
+  targets: Element[] = [];
+  disconnected = false;
+  constructor(private readonly callback: () => void) {
+    FakeResizeObserver.made.push(this);
+  }
+  observe(target: Element) {
+    this.targets.push(target);
+  }
+  unobserve() {}
+  disconnect() {
+    this.disconnected = true;
+  }
+  /** Delivers a size change, as the browser would after layout. */
+  fire() {
+    this.callback();
+  }
+  static watching(el: Element): FakeResizeObserver | undefined {
+    return FakeResizeObserver.made.filter((o) => o.targets.includes(el)).at(-1);
+  }
+}
 
 // PR 6: a stand-in for the browser's UserActivation; isActive reads `activation.active`.
 const activation = { active: false };
@@ -152,6 +189,8 @@ class FakePeerConnection {
 afterAll(() => {
   window.removeEventListener("message", record);
   port?.close();
+  Element.prototype.getBoundingClientRect = realRect;
+  Reflect.set(globalThis, "ResizeObserver", realResizeObserver);
 });
 
 describe("what the kit locks before the model's code runs (fix round 1, I1)", () => {
@@ -998,7 +1037,12 @@ describe("host.job", () => {
 
 // PR 5 Task 5.5, written before host.chart changed: today's SVG for bar, line and sparkline
 // (and the bar drawing any other viz name fell back to). Stored documents must render as
-// before, so these stay as they are. The 60-point case is held as a hash of its SVG.
+// before, so at the reference width (320, which is also what jsdom gets: it has no layout)
+// a chart whose labels fit one row keeps exactly this output (sparkline, no points, the
+// unknown viz name). Polish wave, item A: labels that would touch are now staggered into two
+// rows, and cut with an ellipsis and a full-text <title> when even that is too tight, so the
+// bar and line cases (whose 40-character label overlapped its neighbours) and the 60-point
+// case (held as a hash of its SVG) changed with it.
 describe("host.chart: bar, line and sparkline as before PR 5", () => {
   function svgOf(spec: unknown): string {
     document.body.innerHTML = `<div id="snap"></div>`;
@@ -1017,10 +1061,10 @@ describe("host.chart: bar, line and sparkline as before PR 5", () => {
   ];
 
   test("bar", () => {
-    expect(svgOf({ viz: "bar", title: "Stages", points: POINTS })).toMatchInlineSnapshot(`"<svg viewBox="0 0 320 160" role="img" class="jb-chart" aria-label="Stages"><line x1="0" y1="136" x2="320" y2="136" class="jb-chart-axis"></line><rect x="12.0" y="74.0" width="56.0" height="62.0" class="jb-chart-bar"><title>&lt;b&gt;a&lt;/b&gt;: 2</title></rect><rect x="92.0" y="12.0" width="56.0" height="124.0" class="jb-chart-bar"><title>b: 4</title></rect><rect x="172.0" y="136.0" width="56.0" height="0.0" class="jb-chart-bar"><title>c: 0</title></rect><rect x="252.0" y="27.5" width="56.0" height="108.5" class="jb-chart-bar"><title>a label that runs well past the forty ch: 3.5</title></rect><text x="40.0" y="154" text-anchor="middle" class="jb-chart-label">&lt;b&gt;a&lt;/b&gt;</text><text x="120.0" y="154" text-anchor="middle" class="jb-chart-label">b</text><text x="200.0" y="154" text-anchor="middle" class="jb-chart-label">c</text><text x="280.0" y="154" text-anchor="middle" class="jb-chart-label">a label that runs well past the forty ch</text></svg>"`);
+    expect(svgOf({ viz: "bar", title: "Stages", points: POINTS })).toMatchInlineSnapshot(`"<svg viewBox="0 0 320 160" role="img" class="jb-chart" aria-label="Stages"><line x1="0" y1="122" x2="320" y2="122" class="jb-chart-axis"></line><rect x="12.0" y="67.0" width="56.0" height="55.0" class="jb-chart-bar"><title>&lt;b&gt;a&lt;/b&gt;: 2</title></rect><rect x="92.0" y="12.0" width="56.0" height="110.0" class="jb-chart-bar"><title>b: 4</title></rect><rect x="172.0" y="122.0" width="56.0" height="0.0" class="jb-chart-bar"><title>c: 0</title></rect><rect x="252.0" y="25.8" width="56.0" height="96.3" class="jb-chart-bar"><title>a label that runs well past the forty ch: 3.5</title></rect><text x="40.0" y="140" text-anchor="middle" class="jb-chart-label">&lt;b&gt;a&lt;/b&gt;</text><text x="120.0" y="154" text-anchor="middle" class="jb-chart-label">b</text><text x="200.0" y="140" text-anchor="middle" class="jb-chart-label">c</text><text x="263.9" y="154" text-anchor="middle" class="jb-chart-label">a label that run…<title>a label that runs well past the forty ch</title></text></svg>"`);
   });
   test("line", () => {
-    expect(svgOf({ viz: "line", title: "Weekly", points: [...POINTS, { label: "e", value: Number.NaN }] })).toMatchInlineSnapshot(`"<svg viewBox="0 0 320 160" role="img" class="jb-chart" aria-label="Weekly"><line x1="0" y1="136" x2="320" y2="136" class="jb-chart-axis"></line><polyline points="32.0,74.0 96.0,12.0 160.0,136.0 224.0,27.5 288.0,136.0" class="jb-chart-line"></polyline><text x="32.0" y="154" text-anchor="middle" class="jb-chart-label">&lt;b&gt;a&lt;/b&gt;</text><text x="96.0" y="154" text-anchor="middle" class="jb-chart-label">b</text><text x="160.0" y="154" text-anchor="middle" class="jb-chart-label">c</text><text x="224.0" y="154" text-anchor="middle" class="jb-chart-label">a label that runs well past the forty ch</text><text x="288.0" y="154" text-anchor="middle" class="jb-chart-label">e</text></svg>"`);
+    expect(svgOf({ viz: "line", title: "Weekly", points: [...POINTS, { label: "e", value: Number.NaN }] })).toMatchInlineSnapshot(`"<svg viewBox="0 0 320 160" role="img" class="jb-chart" aria-label="Weekly"><line x1="0" y1="122" x2="320" y2="122" class="jb-chart-axis"></line><polyline points="32.0,67.0 96.0,12.0 160.0,122.0 224.0,25.8 288.0,122.0" class="jb-chart-line"></polyline><text x="32.0" y="140" text-anchor="middle" class="jb-chart-label">&lt;b&gt;a&lt;/b&gt;</text><text x="96.0" y="154" text-anchor="middle" class="jb-chart-label">b</text><text x="160.0" y="140" text-anchor="middle" class="jb-chart-label">c</text><text x="224.0" y="154" text-anchor="middle" class="jb-chart-label">a label that runs…<title>a label that runs well past the forty ch</title></text><text x="288.0" y="140" text-anchor="middle" class="jb-chart-label">e</text></svg>"`);
   });
   test("sparkline", () => {
     expect(svgOf({ viz: "sparkline", title: "Trend", points: POINTS })).toMatchInlineSnapshot(`"<svg viewBox="0 0 320 160" role="img" class="jb-chart" aria-label="Trend"><line x1="0" y1="136" x2="320" y2="136" class="jb-chart-axis"></line><polyline points="40.0,74.0 120.0,12.0 200.0,136.0 280.0,27.5" class="jb-chart-line"></polyline></svg>"`);
@@ -1031,8 +1075,8 @@ describe("host.chart: bar, line and sparkline as before PR 5", () => {
   });
   test("60 points draw the first 50", () => {
     const many = Array.from({ length: 60 }, (_, i) => ({ label: `w${i}`, value: (i * 7) % 13 }));
-    expect(sha256Base64(svgOf({ viz: "bar", title: "Many", points: many }))).toMatchInlineSnapshot(`"3EYJS0e3apsVF4r/Uj532QwG/Y4tQAB5pmO9jmO/v7Q="`);
-    expect(sha256Base64(svgOf({ viz: "line", title: "Many", points: many }))).toMatchInlineSnapshot(`"hKgNm3VJI88Qa9dlK+7VlzSDK/5lIzFlL4PX313OCyY="`);
+    expect(sha256Base64(svgOf({ viz: "bar", title: "Many", points: many }))).toMatchInlineSnapshot(`"gqu9cqwu6GvCQ/UhUwil9Saf/A4Zo55XRFuverVngmo="`);
+    expect(sha256Base64(svgOf({ viz: "line", title: "Many", points: many }))).toMatchInlineSnapshot(`"DEh24gcmp6Vet3nSBeOVWGdVxoA8+NmrPOALKLMjizo="`);
   });
 });
 
@@ -1653,5 +1697,182 @@ describe("host.ask without navigator.userActivation", () => {
     expect(ownHost!.ask("escape")).toBe(false);
     await flush();
     expect(asks()).toEqual(["keydown", "mousedown", "pointerdown", "touchend"].map((text) => ({ type: "ask", text })));
+  });
+});
+
+// Polish wave, item A (spec 08 S9.5): a chart is drawn at the width its element gives it, in
+// user units that are CSS px, so its text renders at its CSS size at any frame width (the
+// SVG used to keep a 320-unit viewBox and scale up: at 1000px its labels were three times
+// the body text). jsdom has no layout: the stand-ins in beforeAll give an SVG inside a
+// data-test-width element that width, and record the kit's ResizeObservers. jsdom cannot
+// measure text either, so the kit estimates label widths (0.6em a character), as this does.
+describe("host.chart: drawn at the width it is given", () => {
+  const SIX = [
+    { label: "Preparing", value: 3 },
+    { label: "Ready", value: 5 },
+    { label: "Applied", value: 12 },
+    { label: "Interviewing", value: 4 },
+    { label: "Offer", value: 1 },
+    { label: "Closed", value: 7 },
+  ];
+  // The frame widths 320, 768, 1000 and 1440, less the kit's 16px body padding on each side.
+  const WIDTHS = [288, 736, 968, 1408];
+  const LABEL_PX = 11; // --font-size-small
+  const textWidth = (text: string) => text.length * LABEL_PX * 0.6;
+  const KINDS: Array<[string, Record<string, unknown>]> = [
+    ["bar", { points: SIX }],
+    ["line", { points: SIX }],
+    ["sparkline", { points: SIX }],
+    ["pie", { points: SIX }],
+    ["hbar", { points: SIX }],
+    ["stacked", { points: SIX }],
+    ["area", { points: SIX }],
+    ["scatter", { xy: SIX.map((p, i) => ({ x: i, y: p.value, label: p.label })), xLabel: "Week", yLabel: "Jobs" }],
+    ["donut", { points: SIX }],
+  ];
+  function drawAt(width: number, spec: unknown) {
+    document.body.innerHTML = `<div id="chart" data-test-width="${width}"></div>`;
+    const el = document.getElementById("chart")!;
+    const handle = host().chart(el, spec) as ChartHandle;
+    return { el, handle, svg: () => el.querySelector("svg.jb-chart")! };
+  }
+  const viewBox = (svg: Element) => svg.getAttribute("viewBox")!.split(" ").map(Number);
+  /** The category labels' extents, by row (their y). */
+  function labelRows(svg: Element): Map<string, Array<{ left: number; right: number; text: string }>> {
+    const rows = new Map<string, Array<{ left: number; right: number; text: string }>>();
+    for (const t of svg.querySelectorAll("text.jb-chart-label")) {
+      const text = t.childNodes[0]?.textContent ?? "";
+      const x = Number(t.getAttribute("x"));
+      const w = textWidth(text);
+      const row = rows.get(t.getAttribute("y")!) ?? [];
+      row.push({ left: x - w / 2, right: x + w / 2, text });
+      rows.set(t.getAttribute("y")!, row);
+    }
+    return rows;
+  }
+
+  test.each(KINDS.flatMap(([viz, rest]) => WIDTHS.map((width) => [viz, width, rest] as const)))(
+    "%s at %ipx: the viewBox is the element's width, so nothing is scaled, and its height does not depend on the width",
+    (viz, width, rest) => {
+      const { svg } = drawAt(width, { viz, title: "Stages", ...rest });
+      const [, , w, h] = viewBox(svg());
+      expect(w).toBe(width);
+      const { svg: atRef } = drawAt(288, { viz, title: "Stages", ...rest });
+      expect(h).toBe(viewBox(atRef())[3]);
+      // No text is drawn left of the chart or past its right edge.
+      for (const t of svg().querySelectorAll("text")) {
+        if (t.getAttribute("transform")) continue;
+        const x = Number(t.getAttribute("x"));
+        const tw = textWidth(t.childNodes[0]?.textContent ?? "");
+        const anchor = t.getAttribute("text-anchor");
+        const [left, right] = anchor === "middle" ? [x - tw / 2, x + tw / 2] : anchor === "end" ? [x - tw, x] : [x, x + tw];
+        expect(left, `${viz} "${t.textContent}" at ${width}`).toBeGreaterThanOrEqual(-0.05);
+        expect(right, `${viz} "${t.textContent}" at ${width}`).toBeLessThanOrEqual(width + 0.05);
+      }
+    },
+  );
+
+  test.each(WIDTHS)("the six stages' labels keep a gap of at least 8px at %ipx, every one shown in full", (width) => {
+    for (const viz of ["bar", "line", "stacked", "area"]) {
+      const { svg } = drawAt(width, { viz, title: "Stages", points: SIX });
+      const rows = labelRows(svg());
+      const shown = [...rows.values()].flat().map((l) => l.text).sort();
+      expect(shown, `${viz} at ${width}`).toEqual(SIX.map((p) => p.label).sort());
+      for (const row of rows.values()) {
+        row.sort((a, b) => a.left - b.left);
+        for (let i = 1; i < row.length; i++) expect(row[i].left - row[i - 1].right, `${viz} at ${width}`).toBeGreaterThanOrEqual(8);
+      }
+      // At the phone width the labels take two staggered rows; from 736 on, one.
+      expect(rows.size, `${viz} at ${width}`).toBe(width === 288 ? 2 : 1);
+    }
+  });
+
+  test("bars stop growing at 112px on a wide chart, centred in their slot", () => {
+    const { svg } = drawAt(1408, { viz: "bar", title: "Stages", points: SIX });
+    const bars = [...svg().querySelectorAll("rect.jb-chart-bar")];
+    expect(bars.map((b) => b.getAttribute("width"))).toEqual(Array(6).fill("112.0"));
+    const step = 1408 / 6;
+    expect(Number(bars[0].getAttribute("x"))).toBeCloseTo((step - 112) / 2, 1);
+  });
+
+  test("labels too long for any room are cut with an ellipsis and keep their full text in a title", () => {
+    const long = Array.from({ length: 8 }, (_, i) => ({ label: `Senior platform engineering role ${i}`, value: i + 1 }));
+    const { svg, el } = drawAt(288, { viz: "bar", title: "Roles", points: long });
+    const labels = [...svg().querySelectorAll("text.jb-chart-label")];
+    expect(labels.length).toBeGreaterThan(0);
+    for (const t of labels) {
+      expect(t.childNodes[0].textContent).toMatch(/…$/);
+      expect(t.querySelector("title")?.textContent).toMatch(/^Senior platform engineering role \d$/);
+    }
+    for (const row of labelRows(svg()).values()) {
+      row.sort((a, b) => a.left - b.left);
+      for (let i = 1; i < row.length; i++) expect(row[i].left - row[i - 1].right).toBeGreaterThanOrEqual(8);
+    }
+    // The hidden table still names every point in full.
+    expect(tableRows(el).slice(1).map((r) => r[0])).toEqual(long.map((p) => p.label));
+  });
+
+  test("hbar's label column fits its labels, and a label past 40% of the chart is cut", () => {
+    const { svg } = drawAt(288, { viz: "hbar", title: "Roles", points: [{ label: "Applied", value: 3 }, { label: "A very long stage name for a bar", value: 5 }] });
+    const labels = [...svg().querySelectorAll("text.jb-chart-label")].filter((t) => t.getAttribute("x") === "0.0");
+    expect(labels[0].childNodes[0].textContent).toBe("Applied");
+    expect(labels[1].childNodes[0].textContent).toMatch(/…$/);
+    expect(labels[1].querySelector("title")?.textContent).toBe("A very long stage name for a bar");
+    expect(textWidth(labels[1].childNodes[0].textContent!)).toBeLessThanOrEqual(Math.round(288 * 0.4) - 8);
+  });
+
+  test("a resize redraws at the new width, the same width does not redraw, and destroy disconnects", () => {
+    const picked: string[] = [];
+    const { el, handle, svg } = drawAt(968, { viz: "bar", title: "Stages", points: SIX, onSelect: (p: { label: string }) => picked.push(p.label) });
+    const first = svg();
+    const ro = FakeResizeObserver.watching(el)!;
+    expect(ro).toBeDefined();
+    ro.fire();
+    expect(svg()).toBe(first);
+    el.setAttribute("data-test-width", "288");
+    ro.fire();
+    expect(svg()).not.toBe(first);
+    expect(viewBox(svg())[2]).toBe(288);
+    // The accessible parts are drawn again with it: the 44px button row and the hidden table.
+    const buttons = [...el.querySelectorAll<HTMLButtonElement>(".jb-chart-picks button")];
+    expect(buttons).toHaveLength(6);
+    buttons[3].click();
+    expect(picked).toEqual(["Interviewing"]);
+    expect(tableRows(el)).toHaveLength(7);
+    expect(el.querySelectorAll("svg")).toHaveLength(1);
+    // update draws the new spec at the current width, and a later resize keeps the new spec.
+    handle.update({ viz: "bar", title: "Two", points: SIX.slice(0, 2) });
+    expect(viewBox(svg())[2]).toBe(288);
+    el.setAttribute("data-test-width", "600");
+    ro.fire();
+    expect(viewBox(svg())[2]).toBe(600);
+    expect(svg().getAttribute("aria-label")).toBe("Two");
+    handle.destroy();
+    expect(ro.disconnected).toBe(true);
+    expect(el.childNodes).toHaveLength(0);
+    ro.fire();
+    expect(el.childNodes).toHaveLength(0);
+  });
+
+  test("an element that is not laid out yet gets the 320 drawing, and the real width once it has one", () => {
+    const { el, svg } = drawAt(0, { viz: "stacked", title: "Applications", series: [
+      { name: "Remote", points: [{ label: "Oct", value: 3 }, { label: "Nov", value: 5 }] },
+      { name: "On site", points: [{ label: "Oct", value: 1 }, { label: "Nov", value: 2 }] },
+    ] });
+    expect(viewBox(svg())[2]).toBe(320);
+    const ro = FakeResizeObserver.watching(el)!;
+    ro.fire();
+    expect(viewBox(svg())[2]).toBe(320);
+    el.setAttribute("data-test-width", "704");
+    ro.fire();
+    expect(viewBox(svg())[2]).toBe(704);
+    // The legend is drawn again with it.
+    expect([...el.querySelectorAll(".jb-chart-legend li")].map((li) => li.textContent)).toEqual(["Remote", "On site"]);
+  });
+
+  test("the measuring probe never stays in the element", () => {
+    const { el } = drawAt(500, { viz: "donut", title: "Stages", points: SIX });
+    expect(el.querySelector(".jb-chart-probe")).toBeNull();
+    expect(cssFor(".jb-chart.jb-chart-probe")).toMatch(/visibility: hidden;/);
   });
 });

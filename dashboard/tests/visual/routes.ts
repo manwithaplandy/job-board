@@ -117,6 +117,9 @@ export const VISUAL_ROUTES: VisualRoute[] = [
   // A view's ask (spec 08 S10.2): the code view's 280-character ask pending on host chrome
   // under the view, wrapping inside its unbroken second half at 375.
   fixture("agent", "page-ask-pending"),
+  // Kit chart text (polish wave, item A): a code view's bar chart of the six application
+  // stages, whose labels must stay at their CSS size and keep apart at every width.
+  fixture("agent", "page-code-chart"),
   fixture("workspaces", "empty"), fixture("workspaces", "agent-marker"), fixture("workspaces", "memo-diff"),
   fixture("system-states", "focus"), fixture("system-states", "destructive"),
 ];

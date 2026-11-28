@@ -239,7 +239,17 @@ jb-select > option, jb-segmented > option { display: none; }
 }
 .jb-select__option[aria-selected="true"] { font-weight: 600; }
 .jb-select__option.jb-active, .jb-select__option:hover { background: var(--bg-muted); }
-.jb-select__button:focus-visible {
+.jb-slider__row { display: flex; align-items: center; gap: var(--space-3); }
+.jb-slider__input {
+  flex: 1 1 auto;
+  min-width: var(--target-size);
+  min-height: var(--target-size);
+  margin: 0;
+  accent-color: var(--accent-solid);
+  cursor: pointer;
+}
+.jb-slider__value { min-width: 5ch; text-align: end; font-size: var(--font-size-control); font-variant-numeric: tabular-nums; color: var(--text-primary); }
+.jb-select__button:focus-visible, .jb-slider__input:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
   box-shadow: 0 0 0 4px var(--focus-halo);
@@ -928,6 +938,128 @@ export const KIT_JS: string = `(function () {
         var i = indexOfValue(st.options, v);
         if (i >= 0 && st.show) st.show(i);
       } else setAttr(this, "value", v);
+    }
+  });
+
+  /* Number formats, shared by the controls, host.format, host.chart and host.table. Each
+     returns "" for a value that is not a finite number, so a missing figure is never shown
+     as one. Numbers are en-US, as the app's own labels are. */
+  function isNum(n) { return typeof n === "number" && finite(n); }
+  function fmtNumber(n) { return isNum(n) ? numberText(n, "en-US") : ""; }
+  function fmtPercent(ratio) { return isNum(ratio) ? numberText(M.round(ratio * 100), "en-US") + "%" : ""; }
+  function fmtDays(n) {
+    if (!isNum(n)) return "";
+    var d = M.round(n);
+    return d === 1 || d === -1 ? d + " day" : numberText(d, "en-US") + " days";
+  }
+  function fmtCurrency(n) {
+    if (!isNum(n)) return "";
+    var whole = M.round(n);
+    return (whole < 0 ? "-$" : "$") + numberText(M.abs(whole), "en-US");
+  }
+  var VALUE_FORMATS = { number: fmtNumber, percent: fmtPercent, days: fmtDays, currency: fmtCurrency };
+  function formatterOf(name) {
+    return typeof name === "string" && hasOwn(VALUE_FORMATS, name) ? VALUE_FORMATS[name] : fmtNumber;
+  }
+
+  /* An attribute read as a finite number, or the fallback. */
+  function numAttr(el, name, fallback) {
+    var a = getAttr(el, name);
+    if (a === null || trimText(a) === "") return fallback;
+    var v = toNumber(a);
+    return finite(v) ? v : fallback;
+  }
+  function decimalsOf(text) {
+    if (text === null) return 0;
+    var s = trimText(String(text));
+    var dot = -1;
+    for (var i = 0; i < s.length; i++) if (s[i] === ".") dot = i;
+    return dot < 0 ? 0 : M.min(s.length - dot - 1, 10);
+  }
+
+  /* <jb-slider name label min max step value format>: a native range input with a visible
+     label and its current value shown beside it (format: "number", "percent" of a ratio,
+     "days" or "currency"; default "number"). The kit steps it on the arrow, Page, Home and
+     End keys itself, so every browser steps alike; a drag arrives as the native input
+     event. value is a number, snapped to the step and clamped. */
+  function buildSlider(host, st) {
+    if (st.built) return;
+    st.built = true;
+    var min = numAttr(host, "min", 0);
+    var max = numAttr(host, "max", 100);
+    if (max < min) max = min;
+    var step = numAttr(host, "step", 1);
+    if (!(step > 0)) step = 1;
+    var decimals = M.max(decimalsOf(getAttr(host, "step")), decimalsOf(getAttr(host, "min")));
+    var format = formatterOf(getAttr(host, "format"));
+    var inputId = nextId("slider");
+    var label = node("label", "jb-control__label", labelOf(host));
+    setAttr(label, "for", inputId);
+    var row = node("div", "jb-slider__row");
+    var input = node("input", "jb-slider__input");
+    setAttr(input, "type", "range");
+    setAttr(input, "id", inputId);
+    setAttr(input, "min", String(min));
+    setAttr(input, "max", String(max));
+    setAttr(input, "step", String(step));
+    var out = node("span", "jb-slider__value");
+    setAttr(out, "aria-hidden", "true");
+    appendTo(row, input);
+    appendTo(row, out);
+    appendTo(host, label);
+    appendTo(host, row);
+    function snap(v) {
+      if (!isNum(v)) v = min;
+      v = min + M.round((v - min) / step) * step;
+      if (v > max) v = max;
+      if (v < min) v = min;
+      return toNumber(fixedText(v, decimals));
+    }
+    function set(v) {
+      st.value = snap(v);
+      setInputValue(input, String(st.value));
+      var text = format(st.value);
+      setText(out, text);
+      setAttr(input, "aria-valuetext", text);
+    }
+    function user(v) {
+      var before = st.value;
+      set(v);
+      if (st.value !== before) emitChange(host, st.value);
+    }
+    st.set = set;
+    set(numAttr(host, "value", min));
+    var page = M.max(step, (max - min) / 10);
+    listen(input, "keydown", function (e) {
+      var k = keyName(e);
+      var next = null;
+      if (k === "ArrowRight" || k === "ArrowUp") next = st.value + step;
+      else if (k === "ArrowLeft" || k === "ArrowDown") next = st.value - step;
+      else if (k === "PageUp") next = st.value + page;
+      else if (k === "PageDown") next = st.value - page;
+      else if (k === "Home") next = min;
+      else if (k === "End") next = max;
+      if (next === null) return;
+      cancelEvent(e);
+      user(next);
+    });
+    listen(input, "input", function () { user(toNumber(inputValueOf(input))); });
+    listen(input, "change", function (e) { stopEvent(e); });
+  }
+  defineOnce("jb-slider", class extends HTMLElement {
+    connectedCallback() {
+      if (this.jbSlider) return;
+      var st = { built: false, value: 0, set: null };
+      this.jbSlider = st;
+      buildSlider(this, st);
+    }
+    get value() {
+      var st = this.jbSlider;
+      return st && st.built ? st.value : numAttr(this, "value", numAttr(this, "min", 0));
+    }
+    set value(v) {
+      var st = this.jbSlider;
+      if (st && st.built && st.set) st.set(toNumber(v)); else setAttr(this, "value", String(v));
     }
   });
 

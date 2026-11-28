@@ -608,3 +608,62 @@ describe("escape and an open jb-select popup", () => {
     await vi.waitFor(() => expect(ofType("escape")).toHaveLength(before + 1));
   });
 });
+
+describe("jb-slider", () => {
+  test("a labelled range that shows its value: value, change with a number, keyboard, 44px", async () => {
+    document.body.innerHTML = `<jb-slider name="min" label="Minimum fit" min="0" max="100" step="5" value="40"></jb-slider>`;
+    const slider = document.querySelector("jb-slider")!;
+    await tick();
+    const input = slider.querySelector('input[type="range"]') as HTMLInputElement;
+    expect(input).not.toBeNull();
+    expect(labelText(input)).toBe("Minimum fit");
+    expect(slider.querySelector(".jb-control__label")?.textContent).toBe("Minimum fit");
+    const shown = slider.querySelector(".jb-slider__value")!;
+    expect(shown.textContent).toBe("40");
+    expect(value(slider)).toBe(40);
+
+    const keys = changes(() => {
+      press(input, "ArrowRight");
+      press(input, "ArrowUp");
+      press(input, "ArrowLeft");
+    });
+    expect(keys.map((c) => c.detail)).toEqual([{ name: "min", value: 45 }, { name: "min", value: 50 }, { name: "min", value: 45 }]);
+    expect(keys.every((c) => c.bubbles && c.custom)).toBe(true);
+    expect(shown.textContent).toBe("45");
+    expect(input.getAttribute("aria-valuetext")).toBe("45");
+    expect(changes(() => press(input, "End")).map((c) => c.detail)).toEqual([{ name: "min", value: 100 }]);
+    // At the end already: no change, no event.
+    expect(changes(() => press(input, "ArrowRight"))).toEqual([]);
+    expect(changes(() => press(input, "Home")).map((c) => c.detail)).toEqual([{ name: "min", value: 0 }]);
+
+    // A drag (the native input event) changes it too; the native change event stays inside.
+    const dragged = changes(() => {
+      input.value = "60";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(dragged).toEqual([{ detail: { name: "min", value: 60 }, bubbles: true, custom: true }]);
+
+    // The value property sets (snapped to the step, clamped) without an event.
+    expect(changes(() => Reflect.set(slider, "value", 72))).toEqual([]);
+    expect(value(slider)).toBe(70);
+    Reflect.set(slider, "value", 400);
+    expect(value(slider)).toBe(100);
+    expect(shown.textContent).toBe("100");
+
+    expect(cssFor(".jb-slider__input")).toMatch(/min-height: var\(--target-size\);/);
+  });
+
+  test("format shows the value as host.format would: percent of a ratio, without float noise", async () => {
+    document.body.innerHTML = `<jb-slider name="rate" label="Rate" min="0" max="1" step="0.05" value="0.35" format="percent"></jb-slider>`;
+    const slider = document.querySelector("jb-slider")!;
+    await tick();
+    const input = slider.querySelector("input")!;
+    expect(slider.querySelector(".jb-slider__value")?.textContent).toBe("35%");
+    expect(changes(() => press(input, "ArrowUp")).map((c) => c.detail)).toEqual([{ name: "rate", value: 0.4 }]);
+    expect(slider.querySelector(".jb-slider__value")?.textContent).toBe("40%");
+    document.body.innerHTML = `<jb-slider name="d" label="Days" min="0" max="30" value="1" format="days"></jb-slider>`;
+    await tick();
+    expect(document.querySelector(".jb-slider__value")?.textContent).toBe("1 day");
+  });
+});

@@ -365,6 +365,17 @@ describe("the re-render's present", () => {
     gathered: gatheredFixture(), repairsLeft: { n: 1 }, views: { used: 0 }, rerenderOf: SOURCE,
   });
 
+  test("its description has no per-turn cap: a re-render presents once", async () => {
+    const t = oneSurfacePresent(ctx(), { id: null });
+    expect(t.description).toMatch(/outcome is invalid/);
+    expect(t.description).not.toMatch(/up to 3 views|outcome limit/);
+    const model = scripted([[presentCall(V2)]]);
+    await run(model, 2).out;
+    const sent = JSON.stringify(model.doGenerateCalls[0].tools);
+    expect(sent).toContain("outcome is invalid");
+    expect(sent).not.toContain("up to 3 views");
+  });
+
   test("its tool output has no payload, and the stored id reaches the run", async () => {
     const stored: { id: string | null } = { id: null };
     const t = oneSurfacePresent(ctx(), stored);

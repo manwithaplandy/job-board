@@ -39,7 +39,15 @@ import { SurfacePayloadV1Schema } from "@/lib/agent/surfaces/v1/blocks";
 import { fallbackSurface } from "@/lib/agent/surfaces/v1/fallback";
 import { withAgentTrace } from "@/lib/agent/telemetry";
 import type { ToolCtx } from "@/lib/agent/tools";
-import { finishPendingRepair, presentTool, presentToolOutput, runPresent, type PresentInput, type PresentToolOutput } from "@/lib/agent/tools/present";
+import {
+  finishPendingRepair,
+  presentTool,
+  presentToolOutput,
+  runPresent,
+  singlePresentDescription,
+  type PresentInput,
+  type PresentToolOutput,
+} from "@/lib/agent/tools/present";
 import { neutralizeClosingTag } from "@/lib/agent/untrusted";
 
 /** Present's one repair needs a second step; there is never a third. */
@@ -144,7 +152,8 @@ export function oneSurfacePresent(ctx: ToolCtx, stored: { id: string | null }) {
   const base = presentTool(ctx);
   let queue: Promise<unknown> = Promise.resolve();
   return tool({
-    description: base.description,
+    // Not the turn's description: a re-render presents once, so no per-turn cap (spec 08 S4.4).
+    description: singlePresentDescription(ctx.variant),
     inputSchema: base.inputSchema,
     execute: (input: PresentInput, options): Promise<PresentToolOutput> => {
       const run = queue.then(async (): Promise<PresentToolOutput> => {

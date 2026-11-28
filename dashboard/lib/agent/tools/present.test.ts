@@ -324,12 +324,13 @@ describe("present, variant 2", () => {
     expect(c.repairsLeft).toMatchObject({ n: 0, attempt: { step: 2, open: true } });
     // The next step's payload is the repair.
     expect(await runPresent(c, { payload: tree() }, step2)).toMatchObject({ outcome: "repaired" });
-    // Invalid then valid in one step: the valid one was not a repair, and it settles the attempt.
+    // Invalid then valid in one step: the valid one was not a repair. Since PR 4 it is another
+    // view of the turn and leaves the attempt open (spec 08 S4.4): the broken view is still owed.
     const d = ctx({ variant: 2 });
     await runPresent(d, { payload: broken }, step1);
     expect(await runPresent(d, { payload: tree() }, step1)).toMatchObject({ outcome: "valid" });
     expect(await runPresent(d, { payload: broken }, step1)).toMatchObject({ outcome: "invalid" });
-    expect(await finishPendingRepair(d)).toBeNull();
+    expect(await finishPendingRepair(d)).toBe(NEW);
     // An invalid payload in a later step is the failed repair: the fallback is stored.
     const e = ctx({ variant: 2 });
     await runPresent(e, { payload: broken }, step1);
@@ -491,6 +492,81 @@ describe("present, at most 3 views per turn", () => {
     expect(out).toMatchObject({ surfaceId: NEW, variant: 3, outcome: "fallback", payload: fallbackSurface(c.gathered, "Picks") });
     expect(c.views.used).toBe(2);
     expect(m.saveSurface).toHaveBeenCalledTimes(2);
+  });
+
+  // Fix round 1 (review I1): a valid view in the step that opened the attempt is another
+  // view, not the repair; it must not close the attempt, or the repair loses its slot.
+  test("(a) [invalid A, valid B] in one step, then A's repair: repaired, 2 rows, 2 slots", async () => {
+    const c = ctx({ variant: 3 });
+    expect(await runPresent(c, { payload: hostile }, step1)).toMatchObject({ outcome: "invalid" });
+    expect(await runPresent(c, { payload: doc("B") }, step1)).toMatchObject({ outcome: "valid" });
+    expect(c.repairsLeft.attempt?.open).toBe(true);
+    expect(await runPresent(c, { payload: doc("A fixed") }, step2)).toMatchObject({ outcome: "repaired" });
+    expect(m.saveSurface).toHaveBeenCalledTimes(2);
+    expect(c.views.used).toBe(2);
+    expect(await finishPendingRepair(c)).toBeNull();
+  });
+
+  test("(b) [invalid A, valid B, valid C] in parallel in one step, then A's repair goes through at the cap", async () => {
+    const c = ctx({ variant: 3 });
+    const first = await Promise.all([
+      runPresent(c, { payload: hostile }, step1),
+      runPresent(c, { payload: doc("B") }, step1),
+      runPresent(c, { payload: doc("C") }, step1),
+    ]);
+    expect(first.map((r) => r.outcome)).toEqual(["invalid", "valid", "valid"]);
+    expect(c.views.used).toBe(3);
+    expect(await runPresent(c, { payload: doc("A fixed") }, step2)).toMatchObject({ outcome: "repaired" });
+    expect(m.saveSurface).toHaveBeenCalledTimes(3);
+    expect(c.views.used).toBe(3);
+    expect(await runPresent(c, { payload: doc("D") }, step3)).toMatchObject({ outcome: "limit" });
+    expect(m.saveSurface).toHaveBeenCalledTimes(3);
+  });
+
+  test("(c) [invalid A, valid B] in one step and no repair: the turn's end stores A's fallback", async () => {
+    const c = ctx({ variant: 3 });
+    await runPresent(c, { payload: hostile }, step1);
+    await runPresent(c, { payload: doc("B") }, step1);
+    expect(await finishPendingRepair(c)).toBe(NEW);
+    expect(saved()).toMatchObject({ variant: 3, outcome: "fallback", payload: fallbackSurface(c.gathered, "Picks") });
+    expect((m.setSurfaceFailure.mock.calls.at(-1) as unknown[])[2]).toBe(REPAIR_NOT_ATTEMPTED);
+    expect(m.saveSurface).toHaveBeenCalledTimes(2);
+    expect(c.views.used).toBe(2);
+  });
+
+  test("a repair whose store fails after it closed the attempt frees the attempt's slot; the cap still holds", async () => {
+    const c = ctx({ variant: 3 });
+    await runPresent(c, { payload: doc("One") }, step1);
+    await runPresent(c, { payload: doc("Two") }, step1);
+    await runPresent(c, { payload: hostile }, step1);
+    expect(c.views.used).toBe(3);
+    m.saveSurface.mockRejectedValueOnce(new Error("db down"));
+    await expect(runPresent(c, { payload: doc("Fixed") }, step2)).rejects.toThrow(/db down/);
+    // Nothing was stored for the attempt and it is settled (no fallback is owed), so its slot is free.
+    expect(c.repairsLeft.attempt?.open).toBe(false);
+    expect(c.views.used).toBe(2);
+    expect(await finishPendingRepair(c)).toBeNull();
+    // One more view fits, then the cap: never more stored rows than 3.
+    expect(await runPresent(c, { payload: doc("Three") }, step3)).toMatchObject({ outcome: "valid" });
+    expect(await runPresent(c, { payload: doc("Four") }, step3)).toMatchObject({ outcome: "limit" });
+    expect(c.views.used).toBe(3);
+    // Four store calls: "One", "Two" and "Three" stored, the repair's rejected.
+    expect(m.saveSurface).toHaveBeenCalledTimes(4);
+  });
+
+  test("a repair that throws while the attempt is still open releases its claim", async () => {
+    const c = ctx({ variant: 3 });
+    await runPresent(c, { payload: hostile }, step1);
+    expect(c.views.used).toBe(1);
+    // A payload whose read throws: validation rejects before the attempt is settled.
+    const exploding = Object.defineProperty({}, "variant", { enumerable: true, get: () => { throw new Error("boom"); } });
+    await expect(runPresent(c, { payload: exploding }, step2)).rejects.toThrow(/boom/);
+    expect(c.repairsLeft.attempt?.open).toBe(true);
+    expect(c.views.used).toBe(1);
+    // The claim is released: the next later-step call is the repair and takes no new slot.
+    expect(await runPresent(c, { payload: doc("Fixed") }, step3)).toMatchObject({ outcome: "repaired" });
+    expect(c.views.used).toBe(1);
+    expect(m.saveSurface).toHaveBeenCalledTimes(1);
   });
 
   test("a call whose store throws gives its slot back", async () => {

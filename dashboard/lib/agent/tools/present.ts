@@ -27,9 +27,10 @@
 //   - parallel calls (PR J1 review M2): every present call in the step that spent the
 //     repair is part of that one attempt. Another invalid payload from the same step
 //     gets `invalid` with its errors and stores nothing; a valid one from the same step
-//     is stored with outcome `valid` (it was not a repair) and settles the attempt. A step
-//     is told apart by the count of messages the model was sent for it, which every
-//     call in one step shares and which grows from step to step;
+//     is stored with outcome `valid` (it was not a repair) and, since a turn may place
+//     several views (spec 08 S4.4), leaves the attempt open: only a later-step call settles
+//     it. A step is told apart by the count of messages the model was sent for it, which
+//     every call in one step shares and which grows from step to step;
 //   - a surface that falls back is stored as a row of the thread's variant (2 or 3) with
 //     the variant 1 fallback in both payload and fallback_payload (plan R13). A valid
 //     variant 3 surface stores its HTML document as the payload and the fallback beside
@@ -186,12 +187,22 @@ const PRESENT_GRAMMAR: Record<Variant, string> = {
     "sandboxed frame with no network. The data read this turn reaches it through host.onInit.",
 };
 
-/** The tool description for one variant. */
-export function presentDescription(variant: Variant): string {
+/**
+ * The tool description for a single present call in one variant, with no per-turn cap:
+ * what a re-render (lib/agent/rerender.ts) shows, since it presents exactly once.
+ */
+export function singlePresentDescription(variant: Variant): string {
   return (
     `${PRESENT_GRAMMAR[variant]} Text is plain (no links). Pass surfaceId to replace a surface shown earlier in ` +
     "this thread. An invalid payload is shown as a default summary instead. If the result's outcome is invalid, " +
-    "nothing was shown: fix the listed errors and call present once more. " +
+    "nothing was shown: fix the listed errors and call present once more."
+  );
+}
+
+/** The tool description for one variant in a turn: the single-call text plus the per-turn cap. */
+export function presentDescription(variant: Variant): string {
+  return (
+    `${singlePresentDescription(variant)} ` +
     // Spec 08 S4.4, verbatim: the per-turn cap (runPresent) and its outcome.
     "You may show up to 3 views in one turn, each where it belongs in your answer. A result with " +
     "outcome limit means the turn has its 3 views: do not call present again."
@@ -301,6 +312,7 @@ async function presentWithRepair(
       };
       return { result: { variant, outcome: "invalid", errors }, opened: true };
     }
+    // Only a later-step call reaches here with an attempt (a same-step one returned above).
     if (attempt !== undefined) attempt.open = false;
     const fallback = fallbackSurface(ctx.gathered, fallbackText(input.payload));
     const surfaceId = await storeSurface(ctx, {
@@ -309,7 +321,10 @@ async function presentWithRepair(
     return { result: { surfaceId, variant, outcome: "fallback", payload: fallback, errors }, opened: false };
   }
   const outcome: SurfaceOutcome = attempt?.open === true && !sameStep(attempt.step, step) ? "repaired" : "valid";
-  if (attempt !== undefined) attempt.open = false;
+  // A valid view in the step that opened the attempt is another view of the turn, not the
+  // repair: the attempt stays open, so its repair keeps the slot it took and the turn's end
+  // still stores its fallback if no repair comes (spec 08 S4.4, PR 4 review I1).
+  if (attempt !== undefined && !sameStep(attempt.step, step)) attempt.open = false;
   const fallback = fallbackSurface(ctx.gathered, fallbackText(checked.payload));
   const surfaceId = await storeSurface(ctx, {
     threadId, surfaceId: input.surfaceId, variant, payload: checked.payload, fallback, outcome, failure: null, started,
@@ -377,7 +392,12 @@ const claimedRepairs = new WeakSet<RepairAttempt>();
  *   - any other call over the cap stores nothing and gets outcome `limit`;
  *   - any other call takes a slot at once, and gives it back when it stored no row and
  *     opened no repair attempt (an invalid call in the step that spent the repair, or a
- *     call that threw).
+ *     call that threw);
+ *   - a repair that stored no row gives the attempt's slot back once the attempt is settled
+ *     (its store threw after closing it): no fallback is owed for it any more. One that
+ *     threw while the attempt is still open releases its claim instead, so the next
+ *     later-step call can repair, and the attempt keeps its slot for that repair or the
+ *     turn-end fallback.
  */
 export async function runPresent(ctx: ToolCtx, input: PresentInput, options?: PresentCallOptions): Promise<PresentResult> {
   const threadId = ctx.threadId;
@@ -404,6 +424,8 @@ export async function runPresent(ctx: ToolCtx, input: PresentInput, options?: Pr
     if (isRepair) {
       // A repair that threw before settling its attempt leaves it to the next later-step call.
       if (attempt.open) claimedRepairs.delete(attempt);
+      // Settled with nothing stored for it (the store threw): the attempt's slot is free.
+      else if (!holdsSlot) ctx.views.used -= 1;
     } else if (!holdsSlot) {
       ctx.views.used -= 1;
     }

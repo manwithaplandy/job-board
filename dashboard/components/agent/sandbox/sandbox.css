@@ -16,3 +16,8 @@
 .rf-sandbox__prompt { margin: 0; color: var(--text-secondary); font-size: var(--font-size-caption); }
 .rf-sandbox__proposed { flex-basis: 100%; margin: 0; padding: 0; list-style: none; color: var(--text-secondary); font-size: var(--font-size-caption); overflow-wrap: anywhere; }
 .rf-sandbox-fallback { min-width: 0; }
+/* An expanded view (spec 08 S6.1): the frame fills the view's body and the document scrolls
+   inside it. The !important beats the inline height the resize handler sets; on collapse
+   that inline height applies again with no message to the frame. */
+.rf-view:is([data-expanded="true"], [data-fade="close"]) .rf-sandbox__holder { height: 100%; }
+.rf-view:is([data-expanded="true"], [data-fade="close"]) .rf-sandbox__frame { height: 100% !important; }

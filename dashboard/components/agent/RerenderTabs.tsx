@@ -162,6 +162,7 @@ export function RerenderControls({
   busy,
   message,
   onRerender,
+  actionsId,
 }: {
   shownVariant: Variant;
   /** The operator switch; null hides the re-render buttons (no plan). */
@@ -169,11 +170,13 @@ export function RerenderControls({
   busy: Variant | null;
   message: string | null;
   onRerender: (variant: Variant) => void;
+  /** The buttons' group id, so a disclosure (the expanded frame below 900px) can name it. */
+  actionsId?: string;
 }) {
   return (
     <div className="rf-agent-versions">
       {variant3Enabled !== null && (
-        <div className="rf-agent-versions__actions" role="group" aria-label={RERENDER_LABEL}>
+        <div id={actionsId} className="rf-agent-versions__actions" role="group" aria-label={RERENDER_LABEL}>
           <span className="rf-agent-versions__label">{RERENDER_LABEL}</span>
           {VARIANTS.map((v) => (
             <Button

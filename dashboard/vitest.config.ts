@@ -16,6 +16,7 @@ export default defineConfig({
     maxWorkers: 2,
     include: [
       "lib/**/*.test.ts",
+      "components/**/*.test.ts",
       "components/**/*.test.tsx",
       "app/**/*.test.ts",
       "app/**/*.test.tsx",

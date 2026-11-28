@@ -87,6 +87,10 @@ export const SANDBOX_CASE_NAMES = [
   "auto_fire",
   "intent_loop",
   "chip_spoof",
+  // PR 3 (spec 08 S14.3): expanding a view restyles the same frame, so its document never
+  // reloads; Escape inside the frame closes the expanded view.
+  "expand-no-reload",
+  "escape-from-frame",
 ] as const;
 export type SandboxCaseName = (typeof SANDBOX_CASE_NAMES)[number];
 
@@ -823,6 +827,41 @@ host.onInit(function () {
 document.getElementById("fake-confirm").addEventListener("click", function () { P("fakePressed", true); });
 host.onInit(function () {
   host.action("compare", { jobIds: ["${HARNESS_JOB_A}", "${HARNESS_JOB_B}"] });
+  P("done");
+});
+</script>`) }],
+  },
+
+  "expand-no-reload": {
+    title: "a counter the user clicks keeps its count while the view is expanded and closed three times: the document never reloads",
+    frames: [{ tag: "expand-no-reload", html: doc("expand-no-reload", `<style>.sbx-count { min-height: 44px; min-width: 44px; padding: 0 16px; }</style>
+<p>Clicks: <span id="count">0</span></p>
+<button id="more" class="sbx-count" type="button">Count</button>
+<script>
+var clicks = 0;
+document.getElementById("more").addEventListener("click", function () {
+  clicks += 1;
+  document.getElementById("count").textContent = String(clicks);
+  P("count", clicks);
+});
+host.onInit(function () {
+  P("init", true);
+  P("done");
+});
+</script>`) }],
+  },
+
+  "escape-from-frame": {
+    title: "Escape pressed with focus inside the frame closes the expanded view",
+    frames: [{ tag: "escape-from-frame", html: doc("escape-from-frame", `<style>.sbx-focus { min-height: 44px; min-width: 44px; padding: 0 16px; }</style>
+<p>Press Escape here.</p>
+<button id="focus-me" class="sbx-focus" type="button">Focus me</button>
+<script>
+document.addEventListener("keydown", function (e) {
+  if (e.key === "Escape") P("escapeSeen", { trusted: e.isTrusted, prevented: e.defaultPrevented });
+});
+host.onInit(function () {
+  P("init", true);
   P("done");
 });
 </script>`) }],

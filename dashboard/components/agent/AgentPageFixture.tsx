@@ -3,6 +3,7 @@
 import type { UIMessage } from "ai";
 import type { Variant } from "@/lib/agent/config";
 import type { HostChain, HostSurface } from "@/lib/agent/surfaces/host";
+import type { SurfacePayloadV3 } from "@/lib/agent/surfaces/v3/document";
 import { AppShell } from "@/components/shell/AppShell";
 import { AppHeader } from "@/components/shell/AppHeader";
 import { AgentChat, StartConversation, type AgentChatFixture } from "./AgentChat";
@@ -11,12 +12,13 @@ import type { AgentPageFixtureState } from "./agentPageFixtureStates";
 import { TestDataBadge } from "./TestDataBadge";
 import type { ThreadSummary } from "./ThreadList";
 import { FIXTURE_GATHERED, JOBS_FIXTURE_PAYLOAD, JOBS_FIXTURE_ROWS } from "./blocks/AgentBlocksFixture";
+import { sandboxChain } from "./SurfaceHost";
 
 // The gallery's agent page fixtures (ui-gallery/states/agent-page-*): the production agent
 // page layout and chat with fixed threads, messages and a surface, and no session or
 // database. They are in the committed visual-regression suite (tests/visual/routes.ts at
 // 390 and 1440, tests/visual/agent-page-widths.spec.ts at 375, 768, 1024, 1280, 1440 and
-// 2000 for the inline-view and steps states), and
+// 2000 for the inline-view, steps and expanded states), and
 // scripts/agent-screens.ts renders them at every width locally. Nothing is sent on load;
 // sending from a fixture calls /api/agent like the real page, which only the local script
 // stubs (its failed-live state), never the committed suite.
@@ -25,6 +27,8 @@ const THREAD = "00000000-0000-4000-8000-0000000000a1";
 const SURFACE = "00000000-0000-4000-8000-0000000000b1";
 // The update of SURFACE in agent-page-view-updated.
 const SURFACE_UPDATED = "00000000-0000-4000-8000-0000000000b2";
+// The variant 3 (code) view of agent-page-code-expanded.
+const SURFACE_CODE = "00000000-0000-4000-8000-0000000000b3";
 const CLOCK = { now: new Date("2026-10-12T00:00:00.000Z"), frozen: true };
 
 const LONG_TITLE = "What are some jobs that would be interesting as a slight career pivot for me, given my platform background?";
@@ -150,6 +154,40 @@ const VIEW_DEGRADED: UIMessage[] = [
   assistant("a2", [lookup("c2", "search_jobs"), { type: "text", text: "Here are the two closest matches side by side." }, present("c3", SURFACE, 2)]),
 ];
 
+// A code (variant 3) view (spec 08 S14.2, agent-page-code-expanded): the same two jobs as
+// the blocks view. Its document is static: no script, so it calls no action and makes no
+// request; the kit's handshake still runs, as for any generated view.
+const CODE_REPLY: UIMessage[] = [
+  ...CONVERSATION.slice(0, 3),
+  assistant("a2", [
+    lookup("c2", "search_jobs"),
+    { type: "text", text: "Here are the two closest matches side by side." },
+    present("c3", SURFACE_CODE, 3),
+  ]),
+];
+
+export const CODE_FIXTURE_DOCUMENT: SurfacePayloadV3 = {
+  variant: 3,
+  title: "Two developer tooling matches",
+  html: `<style>
+.cmp { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
+.cmp h2 { margin: 0 0 var(--space-1); font-size: var(--font-size-body); overflow-wrap: anywhere; }
+.cmp p { margin: var(--space-1) 0; }
+</style>
+<h1>Two developer tooling matches</h1>
+<p class="jb-secondary">Acme lists pay and is remote; Globex is on-site in Austin.</p>
+<div class="cmp">
+<section class="jb-card"><h2>Senior Product Engineer</h2><p>Acme Systems</p><p><span class="jb-badge jb-success">Fit 84</span></p><p class="jb-muted jb-small">Remote</p></section>
+<section class="jb-card"><h2>Staff Backend Engineer</h2><p>Globex</p><p><span class="jb-badge jb-accent">Fit 71</span></p><p class="jb-muted jb-small">Austin, TX, on-site</p></section>
+</div>`,
+};
+
+// Built the way the sandbox harness builds a case (sandboxChain over a SandboxSurface),
+// with the blocks view's payload as its stored fallback.
+const CODE_CHAINS: HostChain[] = [
+  sandboxChain({ id: SURFACE_CODE, threadId: THREAD, payload: CODE_FIXTURE_DOCUMENT, gathered: FIXTURE_GATHERED, fallback: JOBS_FIXTURE_PAYLOAD, rows: JOBS_FIXTURE_ROWS }),
+];
+
 const FIXTURE_SURFACE: HostSurface = {
   id: SURFACE,
   threadId: THREAD,
@@ -182,6 +220,7 @@ const VARIANT_OF: Partial<Record<AgentPageFixtureState, Variant>> = {
   "agent-page-layout": 2,
   "agent-page-code": 3,
   "agent-page-view-degraded": 2,
+  "agent-page-code-expanded": 3,
 };
 
 const MESSAGES_OF: Partial<Record<AgentPageFixtureState, UIMessage[]>> = {
@@ -193,6 +232,8 @@ const MESSAGES_OF: Partial<Record<AgentPageFixtureState, UIMessage[]>> = {
   "agent-page-view-building": VIEW_BUILDING,
   "agent-page-view-updated": VIEW_UPDATED,
   "agent-page-view-degraded": VIEW_DEGRADED,
+  "agent-page-view-expanded": WITH_SURFACE,
+  "agent-page-code-expanded": CODE_REPLY,
 };
 
 const CHAINS_OF: Partial<Record<AgentPageFixtureState, HostChain[]>> = {
@@ -201,13 +242,18 @@ const CHAINS_OF: Partial<Record<AgentPageFixtureState, HostChain[]>> = {
   "agent-page-steps-open": CHAINS,
   "agent-page-view-updated": UPDATED_CHAINS,
   "agent-page-view-degraded": DEGRADED_CHAINS,
+  "agent-page-view-expanded": CHAINS,
+  "agent-page-code-expanded": CODE_CHAINS,
 };
 
-// The chat's gallery seam: a frozen working timer, or one message's steps open.
+// The chat's gallery seam: a frozen working timer, one message's steps open, or a view
+// expanded with the dock (no history entry is pushed for it).
 const CHAT_FIXTURE_OF: Partial<Record<AgentPageFixtureState, AgentChatFixture>> = {
   "agent-page-steps-working": { working: { elapsedMs: 65_000 } },
   "agent-page-steps-open": { openStepsFor: "a2" },
   "agent-page-view-building": { working: { elapsedMs: 12_000 } },
+  "agent-page-view-expanded": { expandedChainId: SURFACE },
+  "agent-page-code-expanded": { expandedChainId: SURFACE_CODE },
 };
 
 export function AgentPageFixture({ state }: { state: AgentPageFixtureState }) {

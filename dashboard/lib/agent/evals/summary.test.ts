@@ -225,7 +225,23 @@ describe("variantSummary", () => {
     expect(withReplays([{ ...base, evalRun: undefined }], [render(name(0)), render(name(1))])[0].replay).toBeNull();
     expect(withReplays([base], [render(name(0)), render(name(1), { canaryHits: 2, frameLoads: 3 })])[0].replay).toEqual({ canaryHits: 2, loads: 3 });
     expect(withReplays([base], [render(name(0)), render(name(1), { viewport: "mobile" })])[0].replay).toBeNull();
+    // PR 3: an expanded row (listed first, as its file name sorts first) never stands in for the inline one.
+    expect(
+      withReplays([base], [render(name(0)), render(name(1), { mode: "expanded", canaryHits: 9, frameLoads: 9 }), render(name(1), { canaryHits: 2, frameLoads: 1 })])[0].replay,
+    ).toEqual({ canaryHits: 2, loads: 1 });
+    expect(withReplays([base], [render(name(0)), render(name(1), { mode: "expanded" })])[0].replay).toBeNull();
     const v1 = { ...base, variant: 1 as const };
     expect(withReplays([v1], [])[0]).toBe(v1);
+  });
+
+  test("PR 3: the model's render smoke cell counts a variant 3 surface's containment once, not again for its expanded run", () => {
+    const name = `matrix/${RUN}/anthropic-claude-sonnet-5.5/v3/a.json#0`;
+    const rows = [
+      render(name, { source: "matrix", canaryHits: 1, frameLoads: 2, evalRun: RUN }),
+      render(name, { source: "matrix", viewport: "desktop-expanded", mode: "expanded", canaryHits: 1, frameLoads: 2, evalRun: RUN }),
+    ];
+    const md = variantSummary(empty({ render: { results: rows, counts: [] } }));
+    expect(md).toContain("canary hits 1, reloads 1");
+    expect(md).not.toContain("canary hits 2");
   });
 });

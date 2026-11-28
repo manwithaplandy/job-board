@@ -1,18 +1,30 @@
 // The render smoke (plan Task 2.11, spec 11 layer 4): every surface on the replay list
 // (lib/agent/evals/replay.ts) rendered by app/ui-gallery/surface-replay against a
-// production build (playwright.render-smoke.config.ts). Hand-written surfaces render at
-// 390 and 1440 px wide, light and dark; recorded ones (matrix, injection: hundreds of
-// surfaces from one run each) at 1440 px light only, which keeps the job short.
+// production build (playwright.render-smoke.config.ts). Every surface, hand-written or
+// recorded (matrix, injection), renders at 390 and 1440 px wide, light and dark, inline and
+// expanded (spec 08 S14.3, S15.2 layer 4; PR 3 review ruling: no reduced matrix for
+// recorded surfaces).
 //
-// Per surface, viewport and theme: no horizontal overflow (inside the frame too, for
+// Expanded: the view frame's Expand pressed, the same frame restyled to fill the viewport.
+// An expanded result is written with "-expanded" after the viewport id and mode
+// "expanded", so every file name is unique per surface, viewport, theme and mode, and
+// readers that pick the inline desktop words (renderedTextIndex) are unchanged. The layout
+// checks are the same in both modes.
+//
+// Per surface, viewport, theme and mode: no horizontal overflow (inside the frame too, for
 // variant 3); every interactive element at least 44 by 44 px (inside the frame too); axe
 // reports no serious or critical violation, each named with its nodes. A screenshot is
 // kept only when a test fails (the config's only-on-failure). Once per surface (1440,
-// light): for variant 3, every fit score and pay
-// figure in the frame's rendered text equals the stored value (findMisstatements), the
-// canary saw nothing and the frame loaded once. The frame's rendered words go into the
-// result as frameText: the judge (Task 2.13) reads a variant 3 surface from there, since
-// its document fills itself in only when it runs.
+// light), in both modes: for variant 3 the canary saw nothing and the frame loaded once
+// (after expanding too). Once per surface (1440, light, inline only): every fit score and
+// pay figure in the frame's rendered text equals the stored value (findMisstatements), and
+// the frame's rendered words go into the result as frameText: the judge (Task 2.13) reads
+// a variant 3 surface from there, since its document fills itself in only when it runs.
+//
+// Only the inline row carries the per-surface measures (misstatements, canaryHits,
+// frameLoads, frameText) into its result file; the expanded row asserts the canary and the
+// load count in the test and writes them as null, so lib/agent/evals/renderResults.ts
+// counts each surface once (PR 3 review fix round 1).
 //
 // Hand-written surfaces (the golden recordings and fixtures/surfaces) must pass every
 // check. Recorded ones (matrix, injection) are data for the decision: their failures are
@@ -37,9 +49,8 @@ const VIEWPORTS = [
   { id: "mobile", width: 390, height: 844 },
   { id: "desktop", width: 1440, height: 1000 },
 ] as const;
-/** What a recorded surface is rendered at: the one combination the per-surface checks use. */
-const RECORDED_COMBOS = [{ viewport: VIEWPORTS[1], theme: "light" as const }];
-const HANDWRITTEN_COMBOS = VIEWPORTS.flatMap((viewport) => THEMES.map((theme) => ({ viewport, theme })));
+const COMBOS = VIEWPORTS.flatMap((viewport) => THEMES.map((theme) => ({ viewport, theme })));
+const MODES = ["inline", "expanded"] as const;
 // Playwright loads specs as CommonJS (no import.meta); resolve from the dashboard folder.
 const AXE_SOURCE = readFileSync(createRequire(path.join(process.cwd(), "package.json")).resolve("axe-core/axe.min.js"), "utf8");
 /** The selector ui-cohesion.spec.ts checks for 44 px targets, plus the kit's own elements. */
@@ -58,7 +69,7 @@ interface Checked {
   misstatements: string[] | null;
   canaryHits: number | null;
   frameLoads: number | null;
-  /** Variant 3, once: the frame's rendered text, which the judge (Task 2.13) reads for this surface. */
+  /** Variant 3, once, inline: the frame's rendered text, which the judge (Task 2.13) reads for this surface. */
   frameText: string | null;
 }
 
@@ -191,7 +202,7 @@ async function frameOf(page: Page): Promise<Frame | null> {
   return handle ? handle.contentFrame() : null;
 }
 
-function writeResult(entry: ReplayEntry, viewport: string, theme: string, checked: Checked) {
+function writeResult(entry: ReplayEntry, viewport: string, theme: string, mode: (typeof MODES)[number], checked: Checked) {
   mkdirSync(RESULTS_DIR, { recursive: true });
   const failures = [
     ...(checked.overflow ? [`overflow ${checked.overflow.scrollWidth} > ${checked.overflow.viewport}`] : []),
@@ -204,16 +215,17 @@ function writeResult(entry: ReplayEntry, viewport: string, theme: string, checke
   ];
   writeFileSync(
     path.join(RESULTS_DIR, `${slug(entry.name)}.${viewport}.${theme}.json`),
-    `${JSON.stringify({ ...entry, viewport, theme, failures, ...checked }, null, 2)}\n`,
+    `${JSON.stringify({ ...entry, viewport, theme, mode, failures, ...checked }, null, 2)}\n`,
   );
   return failures;
 }
 
 for (const entry of ENTRIES) {
   test.describe(entry.name, () => {
-    for (const { viewport, theme } of entry.handwritten ? HANDWRITTEN_COMBOS : RECORDED_COMBOS) {
-      test(`${viewport.id} ${theme}`, async ({ page, request }, testInfo) => {
+    for (const { viewport, theme } of COMBOS) for (const mode of MODES) {
+      test(`${viewport.id} ${theme}${mode === "expanded" ? " expanded" : ""}`, async ({ page, request }, testInfo) => {
         const once = viewport.id === "desktop" && theme === "light";
+        const resultViewport = mode === "expanded" ? `${viewport.id}-expanded` : viewport.id;
         await page.setViewportSize({ width: viewport.width, height: viewport.height });
         await page.emulateMedia({ colorScheme: theme });
         await page.addInitScript((t) => {
@@ -243,6 +255,16 @@ for (const entry of ENTRIES) {
           }
           await page.waitForTimeout(1_000);
         }
+        if (mode === "expanded") {
+          const section = page.locator("[data-replay-surface] .rf-view").first();
+          await page.getByRole("button", { name: /^Expand view:/ }).click();
+          await expect(section, `${entry.name}: expanded`).toHaveAttribute("data-expanded", "true");
+          const box = await section.boundingBox();
+          expect(Math.abs((box?.width ?? 0) - viewport.width), `${entry.name}: the expanded view is as wide as the viewport`).toBeLessThanOrEqual(1);
+          expect(Math.abs((box?.height ?? 0) - viewport.height), `${entry.name}: the expanded view is as tall as the viewport`).toBeLessThanOrEqual(1);
+          // The open fade (120 ms) has finished before anything is measured.
+          await page.waitForTimeout(300);
+        }
 
         const outer = await layout(page);
         const inner = frame ? await layout(frame).catch(() => null) : null;
@@ -266,27 +288,36 @@ for (const entry of ENTRIES) {
           frameLoads: null,
           frameText: null,
         };
+        // Containment, measured once per surface in both modes (expanding must not reload the
+        // frame or let it reach anything); the misstated figures and the words, inline only.
+        let contained: { canaryHits: number; frameLoads: number } | null = null;
         if (entry.variant === 3 && once) {
-          const gathered = parseGathered(entry.gathered);
-          const text = frame ? await frame.locator("body").innerText().catch(() => "") : "";
-          checked.misstatements = gathered ? findMisstatements(text, gathered).map((f) => f.message) : ["the stored gathered data does not parse"];
-          checked.frameText = frame ? (await judgeText(frame).catch(() => text)).slice(0, FRAME_TEXT_MAX) : null;
+          if (mode === "inline") {
+            const gathered = parseGathered(entry.gathered);
+            const text = frame ? await frame.locator("body").innerText().catch(() => "") : "";
+            checked.misstatements = gathered ? findMisstatements(text, gathered).map((f) => f.message) : ["the stored gathered data does not parse"];
+            checked.frameText = frame ? (await judgeText(frame).catch(() => text)).slice(0, FRAME_TEXT_MAX) : null;
+          }
           await page.waitForTimeout(500);
           const hits = (await (await request.get(`${CONTROL}/hits`)).json()) as CanaryHits;
-          checked.canaryHits = hits.total;
-          checked.frameLoads = frameLoads;
+          contained = { canaryHits: hits.total, frameLoads };
+          // Only the inline row carries them into its result, so the eval readers count each
+          // surface once; the expanded row's are asserted below.
+          if (mode === "inline") Object.assign(checked, contained);
         }
 
-        const failures = writeResult(entry, viewport.id, theme, checked);
+        const failures = writeResult(entry, resultViewport, theme, mode, checked);
 
-        // Containment holds for every document, recorded or not.
-        if (checked.canaryHits !== null) expect(checked.canaryHits, `${entry.name}: the canary saw requests`).toBe(0);
-        if (checked.frameLoads !== null) expect(checked.frameLoads, `${entry.name}: the frame loaded more than once`).toBeLessThanOrEqual(1);
+        // Containment holds for every document, recorded or not, in both modes.
+        if (contained) {
+          expect(contained.canaryHits, `${entry.name} (${mode}): the canary saw requests`).toBe(0);
+          expect(contained.frameLoads, `${entry.name} (${mode}): the frame loaded more than once`).toBeLessThanOrEqual(1);
+        }
         if (entry.handwritten) {
           expect(await main.getAttribute("data-replay-degraded"), `${entry.name}: rendered its fallback`).toBe("no");
-          expect(failures, `${entry.name} at ${viewport.id} ${theme}`).toEqual([]);
+          expect(failures, `${entry.name} at ${resultViewport} ${theme}`).toEqual([]);
         } else if (failures.length > 0) {
-          testInfo.annotations.push({ type: "render-smoke-data", description: `${entry.name} at ${viewport.id} ${theme}: ${failures.join("; ").slice(0, 600)}` });
+          testInfo.annotations.push({ type: "render-smoke-data", description: `${entry.name} at ${resultViewport} ${theme}: ${failures.join("; ").slice(0, 600)}` });
         }
       });
     }

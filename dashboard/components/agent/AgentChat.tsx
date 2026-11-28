@@ -27,7 +27,7 @@ import type { AgentRequest } from "@/lib/agent/request";
 import type { HostChain, HostSurface } from "@/lib/agent/surfaces/host";
 import { titleFromFirstMessage } from "@/lib/agent/titles";
 import { parseGenerationJob } from "@/lib/generationJobCodec";
-import { AgentNotice, type AgentBlockingNotice } from "./AgentNotice";
+import { AgentNotice, agentNoticeTitle, type AgentBlockingNotice } from "./AgentNotice";
 import { AttachButton, type AttachedDocument } from "./AttachButton";
 import { Composer } from "./Composer";
 import { ConfirmCard } from "./ConfirmCard";
@@ -40,8 +40,11 @@ import { showUndoToast, writeToastText } from "./UndoToast";
 import { currentStepLabel, summarizeSteps, type StepsState } from "@/lib/agent/steps";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { StepsRow } from "./StepsRow";
-import { ViewFrame } from "./ViewFrame";
+import { ExpandedStatus, turnOutcome, type ExpandedOutcome } from "./ExpandedStatus";
+import { frameOfChain, useExpandedDock } from "./useExpandedDock";
+import { focusInPage, ViewFrame } from "./ViewFrame";
 import { ViewLoadFailed, ViewPlaceholder, ViewUpdatedStub } from "./ViewPlaceholder";
+import { useExpandedView } from "./useExpandedView";
 
 // The agent chat (plan Tasks 0.14 and 1.20). The server owns history (D7): every request
 // carries only the thread id and either the new message's id, text and attached document
@@ -247,6 +250,11 @@ function presentedSurfaceId(part: ToolPart): string | null {
   return view.kind === "surface" ? view.surfaceId : null;
 }
 
+/** Every surface the messages' present parts produced. */
+function presentedIdsOf(messages: UIMessage[]): Set<string> {
+  return new Set(messages.flatMap((m) => toolPartsOf(m).map(presentedSurfaceId).filter((id): id is string => id !== null)));
+}
+
 /** The first approval in the last assistant message that waits for the user (an automatic one never does). */
 function waitingApproval(messages: UIMessage[]): { id: string } | null {
   const last = messages.at(-1);
@@ -329,7 +337,7 @@ function MessageView({
   // bubble; the error line stands in.
   if (shown.length === 0 && row === null) return null;
   return (
-    <li className={`rf-agent-message rf-agent-message--${message.role}`}>
+    <li className={`rf-agent-message rf-agent-message--${message.role}`} data-message-id={message.id}>
       <span className="rf-agent-message__role">{who}</span>
       {row}
       {shown}
@@ -435,6 +443,14 @@ export function AgentChat({
   // ?compare) counts from the mount.
   const [mountedAt] = useState(() => Date.now());
   const [turnStartedAt, setTurnStartedAt] = useState<number | null>(null);
+  // The surfaces the transcript presented when the running turn was sent, so the expanded
+  // view's status line can tell what that turn added (spec 08 S6.2). A turn sent on mount
+  // starts from the stored history.
+  const [turnBase, setTurnBase] = useState<ReadonlySet<string>>(() => presentedIdsOf(initialMessages));
+  // How many turns have ended (finished or failed) in this chat, and the chain that was
+  // expanded when the last one ended (see the status line below).
+  const [turnsEnded, setTurnsEnded] = useState(0);
+  const [endedOn, setEndedOn] = useState<string | null>(null);
   // Which messages' steps panels are open, kept for the session; all start collapsed.
   const [openSteps, setOpenSteps] = useState<Record<string, boolean>>(() => (fixture?.openStepsFor ? { [fixture.openStepsFor]: true } : {}));
   // A turn that failed while the page was open: the user message it answered (null for an
@@ -451,11 +467,6 @@ export function AgentChat({
       setFailedReplies((prev) => new Set([...prev].filter((id) => !ids.includes(id))));
     }
   };
-  const startTurn = () => {
-    const at = Date.now();
-    setTurnStartedAt(at);
-    setNow(at);
-  };
   const named = useRef(!autoTitle);
   // One transport per mounted chat (the page keys AgentChat by thread id).
   const [{ transport, book }] = useState(() => chatTransport(threadId));
@@ -465,7 +476,9 @@ export function AgentChat({
     messages: initialMessages,
     transport,
     generateId,
+    onFinish: () => setTurnsEnded((n) => n + 1),
     onError: (error) => {
+      setTurnsEnded((n) => n + 1);
       // A refusal or a network failure stored nothing; a 5xx or an error mid-stream may
       // come after the server saved the message, so it stays.
       const { rejected, sent } = book.take();
@@ -490,6 +503,13 @@ export function AgentChat({
     },
   });
 
+  const startTurn = () => {
+    const at = Date.now();
+    setTurnStartedAt(at);
+    setNow(at);
+    setTurnBase(presentedIdsOf(messages));
+    setEndedOn(null);
+  };
   const busy = status === "submitted" || status === "streaming";
   const interrupted = !busy && isInterrupted(messages, now);
   const lastUserText = [...messages].reverse().find((m) => m.role === "user");
@@ -770,25 +790,12 @@ export function AgentChat({
   // view with its title focused.
   const chatRef = useRef<HTMLElement>(null);
   const goToChain = (chainId: string) => {
-    const frame = [...(chatRef.current?.querySelectorAll<HTMLElement>(".rf-view") ?? [])].find((el) => el.dataset.chainId === chainId);
+    const frame = frameOfChain(chatRef.current, chainId);
     const title = frame?.querySelector<HTMLElement>(".rf-view__title");
     if (!frame || !title) return;
     if (typeof frame.scrollIntoView === "function") frame.scrollIntoView({ block: "start" });
     title.focus({ preventScroll: true });
   };
-  // Keyed by chain, never by row: an update or a version switch keeps the frame (spec 08 S5).
-  const chainView = (chain: HostChain) => (
-    <ViewFrame
-      key={chain.chainId}
-      chain={chain}
-      threadId={threadId}
-      variant3Enabled={rerenderSwitch}
-      onIntent={onIntent}
-      onPrepSettled={onPrepSettled}
-      onFallback={onFallback}
-      onRerendered={onRerendered}
-    />
-  );
 
   const approve = async (target: ConfirmState) => {
     setConfirmBusy(true);
@@ -819,13 +826,79 @@ export function AgentChat({
   const approvalProblem =
     waitingId === null ? null : !approvalsEnabled || approvalCard?.status === "unavailable" ? CONFIRMATIONS_UNAVAILABLE : approvalCard?.status === "invalid" ? APPROVAL_INVALID : null;
 
+  // The one expanded view (spec 08 S6), held here above the message list and keyed by chain,
+  // so a chain whose update lands in a newer message (a new frame there) stays expanded.
+  const { expandedChainId, expand, collapse, requestEscape } = useExpandedView({
+    chainIds: chains.map((c) => c.chainId),
+    blocked: () => shownConfirm !== null,
+    initial: fixture?.expandedChainId,
+  });
+  const rootRef = useRef<HTMLDivElement>(null);
+  const dockRef = useExpandedDock({ expandedChainId, rootRef, chatRef });
+  // The chain that was expanded when the last turn ended, for the status line; cleared when
+  // the next turn starts or another view (or none) is expanded. A turn's end is counted by
+  // the chat's own callbacks (a fast reply may never render a busy status), and read here.
+  // State adjusted during render.
+  const [endsSeen, setEndsSeen] = useState(turnsEnded);
+  if (endsSeen !== turnsEnded) {
+    setEndsSeen(turnsEnded);
+    setEndedOn(expandedChainId);
+  }
+  if (endedOn !== null && endedOn !== expandedChainId) setEndedOn(null);
+  const failedTurnText = blocking ? agentNoticeTitle(blocking) : problem ? problem.text : interrupted ? INTERRUPTED_TEXT : null;
+  const ended =
+    expandedChainId === null || endedOn !== expandedChainId
+      ? { outcome: "none" as ExpandedOutcome, newChainId: null }
+      : failedTurnText !== null
+        ? { outcome: "error" as ExpandedOutcome, newChainId: null }
+        : turnOutcome({ surfaceIds: [...presentedIdsOf(messages)].filter((id) => !turnBase.has(id)), chains, failedLoads, expandedChainId });
+  // "Back to conversation": the reply is scrolled into view once the view has collapsed.
+  const scrollAfterCollapse = useRef<string | null>(null);
+  const backToConversation = () => {
+    scrollAfterCollapse.current = [...messages].reverse().find((m) => m.role === "assistant")?.id ?? null;
+    collapse();
+  };
+  // A collapse whose view is gone (its chain left the page) leaves focus nowhere: the
+  // composer takes it (spec 08 S6.3). A view that is still there focuses its own Expand.
+  const lastExpanded = useRef<string | null>(expandedChainId);
+  useEffect(() => {
+    const was = lastExpanded.current;
+    lastExpanded.current = expandedChainId;
+    if (was === null || expandedChainId !== null) return;
+    const target = scrollAfterCollapse.current;
+    scrollAfterCollapse.current = null;
+    if (target !== null) {
+      const message = [...(chatRef.current?.querySelectorAll<HTMLElement>(".rf-agent-message") ?? [])].find((el) => el.dataset.messageId === target);
+      if (message && typeof message.scrollIntoView === "function") message.scrollIntoView({ block: "start" });
+    }
+    const textarea = dockRef.current?.querySelector<HTMLElement>("textarea");
+    if (textarea && !frameOfChain(chatRef.current, was)) focusInPage(textarea);
+  }, [expandedChainId, dockRef]);
+  // Keyed by chain, never by row: an update or a version switch keeps the frame (spec 08 S5).
+  const chainView = (chain: HostChain) => (
+    <ViewFrame
+      key={chain.chainId}
+      chain={chain}
+      threadId={threadId}
+      variant3Enabled={rerenderSwitch}
+      onIntent={onIntent}
+      onPrepSettled={onPrepSettled}
+      onFallback={onFallback}
+      onRerendered={onRerendered}
+      expanded={expandedChainId === chain.chainId}
+      onExpand={() => expand(chain.chainId)}
+      onCollapse={collapse}
+      onEscape={requestEscape}
+    />
+  );
+
   // Placement (spec 08 S4.1): one column at every width. Each chain renders once, inline
   // at the present call that produced its latest row; an earlier row's call shows the
   // "updated below" stub; a chain no call in the loaded history names renders after the
   // transcript. A call whose row has not loaded shows the placeholder sized for the
   // thread's variant, or the load failure with Try again.
   const placeholderVariant: Variant = variants?.thread ?? 1;
-  const presentedIds = new Set(messages.flatMap((m) => toolPartsOf(m).map(presentedSurfaceId).filter((id): id is string => id !== null)));
+  const presentedIds = presentedIdsOf(messages);
   const orphans = chains.filter((c) => !presentedIds.has(c.surface.id));
   const renderPresent = (part: ToolPart, state: StepsState | null): ReactNode => {
     const view = presentView(part);
@@ -867,8 +940,12 @@ export function AgentChat({
     />
   );
 
+  const confirmCard = shownConfirm && (
+    <ConfirmCard descriptor={shownConfirm.descriptor} onApprove={() => void approve(shownConfirm)} onDeny={() => deny(shownConfirm)} busy={confirmBusy} />
+  );
+
   return (
-    <div className="rf-agent-conversation">
+    <div ref={rootRef} className="rf-agent-conversation">
       {(shownTitle || variants) && (
         // The fixed chrome above the conversation (spec 6.1): the thread's title and the
         // switcher for how answers are drawn. It wraps; nothing in it overlaps.
@@ -879,7 +956,7 @@ export function AgentChat({
             </h2>
           )}
           {/* A change during a turn applies to the next one: the loop read the variant when the turn started. */}
-          {variants && <VariantSwitcher threadId={threadId} state={variants} />}
+          {variants && <VariantSwitcher threadId={threadId} state={variants} disabled={expandedChainId !== null} />}
         </div>
       )}
       <section ref={chatRef} className="rf-agent-chat" aria-label="Conversation">
@@ -917,9 +994,30 @@ export function AgentChat({
         ))}
         <ReviewProgress watch={reviewWatch} />
         {blocking && <AgentNotice kind={blocking} />}
-        {approvalProblem && !shownConfirm && <Alert tone="warning">{approvalProblem}</Alert>}
-        {shownConfirm && <ConfirmCard descriptor={shownConfirm.descriptor} onApprove={() => void approve(shownConfirm)} onDeny={() => deny(shownConfirm)} busy={confirmBusy} />}
-        {messages.length === 0 ? <EmptyState hasProfile={hasProfile} composer={composer} /> : composer}
+        {messages.length === 0 ? (
+          <>
+            {approvalProblem && !shownConfirm && <Alert tone="warning">{approvalProblem}</Alert>}
+            {confirmCard}
+            <EmptyState hasProfile={hasProfile} composer={composer} />
+          </>
+        ) : (
+          // The bottom of the chat (spec 08 S6.2): in the flow inline, fixed over the
+          // expanded view's bottom edge while a view is expanded, never moved in the DOM.
+          <div ref={dockRef} className="rf-agent-dock" data-expanded={expandedChainId !== null ? "true" : undefined}>
+            <ExpandedStatus
+              expanded={expandedChainId !== null}
+              working={working ? { label: currentStepLabel(last?.role === "assistant" ? last.parts : []), elapsedMs } : null}
+              outcome={ended.outcome}
+              errorText={failedTurnText ?? undefined}
+              onBack={backToConversation}
+              onShow={() => ended.newChainId !== null && expand(ended.newChainId)}
+              onRetry={blocking ? null : problem ? (problem.retry ? retry : null) : retry}
+            />
+            {approvalProblem && !shownConfirm && <Alert tone="warning">{approvalProblem}</Alert>}
+            {confirmCard}
+            {composer}
+          </div>
+        )}
       </section>
     </div>
   );

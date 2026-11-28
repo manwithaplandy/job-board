@@ -71,6 +71,86 @@
 .rf-view__requests { min-width: 0; }
 .rf-view__requests:not(:has(.rf-sandbox__chip)) { margin-top: 0; }
 .rf-view__footer { min-width: 0; }
+/* The version tabs' slot in the header; empty (one version) it takes no room. */
+.rf-view__versions:empty { display: none; }
+.rf-view__expand { flex: none; }
+
+/* Expand (spec 08 S6.1, S6.4): the same <section>, restyled to fill the viewport. It is
+   never moved in the DOM, so a sandbox iframe is not reloaded; nothing above it may set
+   transform, filter, contain or will-change, or `position: fixed` would be relative to that
+   ancestor. Above the app header (z-index 20) and its menu (40), below the toasts. The dock
+   (.rf-agent-dock) sits one above it, and the view keeps its height clear at the bottom
+   through --rf-dock-h. */
+html.rf-view-expanded { overflow: hidden; }
+.rf-view:is([data-expanded="true"], [data-fade="close"]) {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  height: 100dvh;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  padding: calc(var(--space-4) + env(safe-area-inset-top, 0px)) calc(var(--space-4) + env(safe-area-inset-right, 0px))
+    calc(var(--space-3) + max(var(--rf-dock-h, 0px), env(safe-area-inset-bottom, 0px))) calc(var(--space-4) + env(safe-area-inset-left, 0px));
+  border: 0;
+  border-radius: 0;
+  background: var(--bg-page);
+}
+/* The 120ms opacity fade both ways (spec 08 S6.3), set by ViewFrame. A closing view keeps
+   the layout above (data-fade="close") only for its fade out, and takes no pointer events:
+   the page under it is already live again. */
+.rf-view[data-fade="open"] { animation: rf-view-open 120ms ease-out; }
+.rf-view[data-fade="close"] { animation: rf-view-close 120ms ease-in forwards; pointer-events: none; }
+@keyframes rf-view-open { from { opacity: 0; } to { opacity: 1; } }
+@keyframes rf-view-close { from { opacity: 1; } to { opacity: 0; } }
+.rf-view:is([data-expanded="true"], [data-fade="close"]) > .rf-view__body { min-height: 0; overflow: auto; }
+/* Blocks and trees are centred at the workspace width; a sandbox document fills the body
+   and scrolls inside its own frame (sandbox.css). */
+.rf-view:is([data-expanded="true"], [data-fade="close"]) > .rf-view__body > .rf-agent-surface:not([data-surface-view="sandbox"]) { max-width: var(--content-workspace); margin-inline: auto; }
+.rf-view:is([data-expanded="true"], [data-fade="close"]) > .rf-view__body > .rf-agent-surface[data-surface-view="sandbox"] { height: 100%; }
+@media (prefers-reduced-motion: reduce) {
+  .rf-view[data-fade] { animation: none; }
+}
+/* Below 900px the expanded view is a full-screen sheet: the header wraps to two rows with
+   Close at the top right, and "Re-render as" collapses behind one disclosure. From 900px
+   the header is one row and the buttons always show. */
+@media (max-width: 899px) {
+  .rf-view:is([data-expanded="true"], [data-fade="close"]) > .rf-view__header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "heading close" "versions versions";
+    align-items: start;
+  }
+  .rf-view:is([data-expanded="true"], [data-fade="close"]) .rf-view__heading { grid-area: heading; }
+  .rf-view:is([data-expanded="true"], [data-fade="close"]) .rf-view__versions { grid-area: versions; min-width: 0; }
+  .rf-view:is([data-expanded="true"], [data-fade="close"]) .rf-view__expand { grid-area: close; min-width: var(--target-size); min-height: var(--target-size); }
+  .rf-view__footer[data-rerender-open="false"] .rf-agent-versions__actions { display: none; }
+}
+@media (min-width: 900px) {
+  .rf-view__rerender-toggle { display: none; }
+}
+
+/* The dock (spec 08 S6.2): the bottom of the chat, in the flow inline. While a view is
+   expanded it is fixed along the bottom edge, one above the view, never moved in the DOM;
+   useExpandedDock writes its height (--rf-dock-h) and, on phones, how far the on-screen
+   keyboard covers the layout viewport (--rf-dock-bottom), both on the conversation root. */
+.rf-agent-dock { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); min-width: 0; }
+.rf-agent-dock[data-expanded="true"] {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--rf-dock-bottom, 0px);
+  z-index: 51;
+  max-height: 60dvh;
+  overflow: auto;
+  padding: var(--space-3) calc(var(--space-4) + env(safe-area-inset-right, 0px)) calc(var(--space-3) + env(safe-area-inset-bottom, 0px)) calc(var(--space-4) + env(safe-area-inset-left, 0px));
+  border-top: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+.rf-agent-dock[data-expanded="true"] > * { width: 100%; max-width: var(--content-workspace); margin-inline: auto; }
+/* The turn status line, only while a view is expanded. */
+.rf-expanded-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); min-width: 0; color: var(--text-secondary); font-size: var(--font-size-caption); font-weight: 600; }
+.rf-expanded-status__text { min-width: 0; }
+.rf-expanded-status__timer { color: var(--text-muted); font-variant-numeric: tabular-nums; font-weight: 400; }
+.rf-expanded-status--error { color: var(--danger); }
 
 /* What stands at a present part while its view is not there (spec 08 S7.3, S11): the sized
    placeholder (the frame's border, a quiet shimmer, none under reduced motion), the one

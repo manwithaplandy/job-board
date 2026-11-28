@@ -123,7 +123,13 @@ describe("visual regression route inventory", () => {
     }
     const spec = readFileSync("tests/visual/ui-cohesion.spec.ts", "utf8");
     expect(spec).toContain("route.live");
-    expect(spec).toContain("fullPage: true");
+    // Full page for every route but the expanded agent views (spec 08 S6.1: fixed to the
+    // viewport, page scrolling off), which are the only viewport-only routes.
+    expect(spec).toContain("fullPage: !route.viewportOnly");
+    expect(VISUAL_ROUTES.filter((route) => route.viewportOnly).map((route) => route.id).sort()).toEqual([
+      "agent-page-code-expanded-fixture",
+      "agent-page-view-expanded-fixture",
+    ]);
   });
 
   test("skips test-driver routes in the screenshot matrix, so they need no baseline", () => {
@@ -158,6 +164,9 @@ describe("visual regression route inventory", () => {
       "agent-page-steps-working",
       "agent-page-steps-done",
       "agent-page-steps-open",
+      // PR 3 (spec 08 S6, S14.2): an expanded blocks view and an expanded code view.
+      "agent-page-view-expanded",
+      "agent-page-code-expanded",
     ]) expect(spec).toContain(`"${state}"`);
     // The surface column is gone (spec 08 S4.1): the spec asserts it is absent, never shown.
     expect(spec).not.toContain("SPLIT_FROM");

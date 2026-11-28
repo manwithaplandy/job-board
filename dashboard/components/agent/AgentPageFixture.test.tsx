@@ -2,7 +2,7 @@
 // The gallery's agent page fixtures (PR K1): every state renders the production page
 // layout with its fixed data and no network.
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 vi.mock("@/app/actions/agent", () => ({
   newThread: vi.fn(),
@@ -25,7 +25,8 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("./ReviewProgress", () => ({ ReviewProgress: () => null }));
 
-import { AgentPageFixture } from "./AgentPageFixture";
+import { validateSurfaceV3 } from "@/lib/agent/surfaces/v3/document";
+import { AgentPageFixture, CODE_FIXTURE_DOCUMENT } from "./AgentPageFixture";
 import { AGENT_PAGE_FIXTURE_STATES } from "./agentPageFixtureStates";
 
 beforeEach(() => {
@@ -105,4 +106,43 @@ test("agent-page-view-degraded shows a layout view stored as blocks, solid-frame
   expect(view.getAttribute("data-frame")).toBe("solid");
   expect(screen.getByText("Shown as blocks because the view could not be built.")).toBeTruthy();
   expect(screen.getByRole("radio", { name: "Layout" }).getAttribute("aria-checked")).toBe("true");
+});
+
+// PR 3 (spec 08 S6, S14.2): the expanded states, through the chat's fixture seam.
+describe("the expanded states", () => {
+  afterEach(() => {
+    document.documentElement.classList.remove("rf-view-expanded");
+  });
+
+  test("agent-page-view-expanded shows the blocks view expanded, with the dock live and the rest inert", () => {
+    const { container } = render(<AgentPageFixture state="agent-page-view-expanded" />);
+    const view = container.querySelector<HTMLElement>(".rf-view")!;
+    expect(view.dataset.expanded).toBe("true");
+    expect(view.getAttribute("role")).toBe("dialog");
+    expect(view.getAttribute("aria-modal")).toBe("false");
+    expect(view.querySelector(".rf-agent-surface")?.getAttribute("data-surface-view")).toBe("blocks");
+    expect(screen.getByRole("button", { name: "Close expanded view" }).getAttribute("aria-expanded")).toBe("true");
+    const dock = container.querySelector<HTMLElement>(".rf-agent-dock")!;
+    expect(dock.dataset.expanded).toBe("true");
+    expect(dock.contains(screen.getByLabelText(/^Message/))).toBe(true);
+    expect(view.closest("[inert]")).toBeNull();
+    expect(dock.closest("[inert]")).toBeNull();
+    expect(screen.getByRole("navigation", { name: "Conversations" }).closest("[inert]")).not.toBeNull();
+    expect(document.documentElement.classList.contains("rf-view-expanded")).toBe(true);
+  });
+
+  test("agent-page-code-expanded shows a variant 3 view expanded in its generated-view frame, with Code selected", () => {
+    const { container } = render(<AgentPageFixture state="agent-page-code-expanded" />);
+    const view = container.querySelector<HTMLElement>(".rf-view")!;
+    expect(view.dataset.expanded).toBe("true");
+    expect(view.dataset.variant).toBe("3");
+    expect(view.dataset.frame).toBe("dashed");
+    expect(view.querySelector("iframe.rf-sandbox__frame")).not.toBeNull();
+    expect(screen.getByRole("radio", { name: "Code" }).getAttribute("aria-checked")).toBe("true");
+  });
+
+  test("the code view's document passes the variant 3 checks and is static: no script, action or request", () => {
+    expect(validateSurfaceV3(CODE_FIXTURE_DOCUMENT).ok).toBe(true);
+    expect(CODE_FIXTURE_DOCUMENT.html).not.toMatch(/<script|host\.|action=|fetch|https?:/i);
+  });
 });

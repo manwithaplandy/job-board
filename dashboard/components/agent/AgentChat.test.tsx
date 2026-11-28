@@ -13,11 +13,26 @@ const actions = vi.hoisted(() => ({
   setThreadVariantAction: vi.fn(),
   setDefaultVariantAction: vi.fn(),
   loadSurfaceAction: vi.fn(),
+  describeApprovalAction: vi.fn(),
 }));
 vi.mock("@/app/actions/agent", () => actions);
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn(), refresh: vi.fn() }) }));
 // The review indicator polls its own route; these tests count only /api/agent requests.
 vi.mock("./ReviewProgress", () => ({ ReviewProgress: () => null }));
+// The real SurfaceHost, which also records the view host its frame hands it, by surface id,
+// so a test can send the in-frame Escape a sandbox frame would send (spec 08 S6.3).
+const viewHosts = vi.hoisted(() => new Map<string, { onEscape: () => void }>());
+vi.mock("./SurfaceHost", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./SurfaceHost")>();
+  const { createElement, useContext } = await import("react");
+  const { ViewHostContext } = await import("./ViewHostContext");
+  function SurfaceHost(props: Parameters<typeof real.SurfaceHost>[0]) {
+    const host = useContext(ViewHostContext);
+    if (host) viewHosts.set(props.surface.id, host);
+    return createElement(real.SurfaceHost, props);
+  }
+  return { ...real, SurfaceHost };
+});
 
 import {
   AgentChat,
@@ -31,6 +46,8 @@ import type { HostChain, HostSurface } from "@/lib/agent/surfaces/host";
 import { gatheredFixture } from "@/lib/agent/surfaces/v1/testFixtures";
 import { SURFACE_FAILED_TEXT } from "./SurfaceHost";
 import { ViewUpdatedStub } from "./ViewPlaceholder";
+import { CONFIRMATIONS_UNAVAILABLE } from "@/lib/agent/approvalSecret";
+import type { ConfirmDescriptor } from "@/lib/agent/actions/intents";
 
 const THREAD = "22222222-2222-4222-8222-222222222222";
 
@@ -869,5 +886,223 @@ describe("inline views", () => {
     const transcript = container.querySelector(".rf-agent-transcript")!;
     expect(transcript.contains(view)).toBe(false);
     expect(transcript.compareDocumentPosition(view) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
+// PR 3 Task 3.4: the dock, inert and the status line (spec 08 S6.2, S6.3, S8). The expanded
+// state is held here, keyed by chain, so it survives a chain moving to a newer message.
+describe("an expanded view", () => {
+  let back: { mockRestore(): void } | null = null;
+  beforeEach(() => {
+    // jsdom's history.back() traverses asynchronously, so a collapse's back() could land in a
+    // later test and collapse that test's view. Here it lands at once: the entry below is
+    // the plain one, and its popstate arrives (the hook swallows it as its own back).
+    back = vi.spyOn(window.history, "back").mockImplementation(() => {
+      window.history.replaceState(null, "");
+      window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
+    });
+    actions.loadSurfaceAction.mockReset().mockResolvedValue(null);
+    actions.describeApprovalAction.mockReset();
+    vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
+    window.history.replaceState(null, "");
+  });
+  afterEach(() => {
+    back?.mockRestore();
+    document.documentElement.classList.remove("rf-view-expanded");
+  });
+
+  const descriptor: ConfirmDescriptor = { title: "Prepare this application?", lines: ["Engineer at Acme"], proposed: [], confirmLabel: "Prepare", danger: false };
+  const approvalPart = (id: string): Part =>
+    ({ type: "tool-start_application_prep", toolCallId: `c-${id}`, state: "approval-requested", input: { jobId: "j" }, approval: { id } }) as Part;
+  const dock = (c: HTMLElement) => c.querySelector<HTMLElement>(".rf-agent-dock")!;
+  const frameOf = (c: HTMLElement, chainId: string) => [...c.querySelectorAll<HTMLElement>(".rf-view")].find((el) => el.dataset.chainId === chainId) ?? null;
+  const isInert = (el: Element) => el.closest("[inert]") !== null;
+  const expandButton = (title: string) => screen.getByRole("button", { name: `Expand view: ${title}` });
+
+  /** A reply that presents one surface, then says a sentence. */
+  function presentReply(messageId: string, surfaceId: string): Response {
+    return createUIMessageStreamResponse({
+      stream: new ReadableStream<UIMessageChunk>({
+        start(controller) {
+          controller.enqueue({ type: "start", messageId });
+          controller.enqueue({ type: "start-step" });
+          controller.enqueue({ type: "tool-input-available", toolCallId: `p-${messageId}`, toolName: "present", input: { payload: {} } });
+          controller.enqueue({ type: "tool-output-available", toolCallId: `p-${messageId}`, output: { surfaceId, variant: 1, outcome: "valid" } });
+          controller.enqueue({ type: "finish-step" });
+          controller.enqueue({ type: "text-start", id: "t" });
+          controller.enqueue({ type: "text-delta", id: "t", delta: "Done." });
+          controller.enqueue({ type: "text-end", id: "t" });
+          controller.enqueue({ type: "finish" });
+          controller.close();
+        },
+      }),
+    });
+  }
+  const sendText = (t: string) => {
+    fireEvent.change(composer(), { target: { value: t } });
+    fireEvent.click(sendButton());
+  };
+
+  test("the approval alert, the confirm card and the composer sit in the dock; the empty state does not", async () => {
+    const withoutSecret = render(<AgentChat threadId={THREAD} initialMessages={[ask("u1", "Prepare it"), reply("a1", [approvalPart("ap-1")])]} notice={null} />);
+    const alert = await screen.findByText(CONFIRMATIONS_UNAVAILABLE);
+    expect(dock(withoutSecret.container).contains(alert)).toBe(true);
+    expect(dock(withoutSecret.container).contains(composer())).toBe(true);
+    cleanup();
+
+    actions.describeApprovalAction.mockResolvedValue({ status: "ready", descriptor });
+    const withCard = render(<AgentChat threadId={THREAD} initialMessages={[ask("u1", "Prepare it"), reply("a1", [approvalPart("ap-2")])]} notice={null} approvalsEnabled />);
+    const card = await screen.findByRole("group", { name: "Prepare this application?" });
+    expect(dock(withCard.container).contains(card)).toBe(true);
+    cleanup();
+
+    const empty = render(<AgentChat threadId={THREAD} initialMessages={[]} notice={null} />);
+    expect(dock(empty.container)).toBeNull();
+    expect(composer()).toBeTruthy();
+  });
+
+  test("with the fixture's expanded chain, everything but the frame, the dock and the toasts is inert", () => {
+    const messages = [ask("u1", "Show me"), reply("a1", [text("First."), presentPart(V1)]), ask("u2", "And another"), reply("a2", [text("Second."), presentPart(V2)])];
+    const chains = [chainOf(hostSurface(V1, "View A")), chainOf(hostSurface(V2, "View B"))];
+    const { container } = render(
+      <>
+        <nav aria-label="Threads" />
+        <AgentChat threadId={THREAD} title="A thread" initialMessages={messages} notice={null} surfaces={chains} fixture={{ expandedChainId: V2 }} />
+        <section aria-label="Notifications alt+T" />
+      </>,
+    );
+    const expanded = frameOf(container, V2)!;
+    expect(expanded.dataset.expanded).toBe("true");
+    expect(isInert(expanded)).toBe(false);
+    expect(isInert(dock(container))).toBe(false);
+    expect(isInert(screen.getByRole("navigation", { name: "Threads" }))).toBe(true);
+    expect(isInert(container.querySelector(".rf-agent-toolbar")!)).toBe(true);
+    expect(isInert(frameOf(container, V1)!)).toBe(true);
+    expect(isInert(screen.getByText("And another"))).toBe(true);
+    expect(isInert(screen.getByText("Second."))).toBe(true);
+    expect(isInert(screen.getByRole("region", { name: "Notifications alt+T" }))).toBe(false);
+    expect(document.documentElement.classList.contains("rf-view-expanded")).toBe(true);
+  });
+
+  test("collapsing restores what was made inert", () => {
+    const messages = [ask("u1", "Show me"), reply("a1", [text("First."), presentPart(V1)])];
+    const { container } = render(<AgentChat threadId={THREAD} title="A thread" initialMessages={messages} notice={null} surfaces={[chainOf(hostSurface(V1, "View A"))]} />);
+    fireEvent.click(expandButton("View A"));
+    expect(isInert(container.querySelector(".rf-agent-toolbar")!)).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Close expanded view" }));
+    expect(container.querySelector("[inert]")).toBeNull();
+    expect(frameOf(container, V1)!.dataset.expanded).toBeUndefined();
+  });
+
+  test("Escape does nothing while a confirm card shows; the card is in the dock and live", async () => {
+    actions.describeApprovalAction.mockResolvedValue({ status: "ready", descriptor });
+    const messages = [ask("u1", "Prepare it"), reply("a1", [presentPart(V1), approvalPart("ap-3")])];
+    const { container } = render(
+      <AgentChat threadId={THREAD} initialMessages={messages} notice={null} approvalsEnabled surfaces={[chainOf(hostSurface(V1, "View A"))]} fixture={{ expandedChainId: V1 }} />,
+    );
+    const card = await screen.findByRole("group", { name: "Prepare this application?" });
+    expect(isInert(card)).toBe(false);
+    act(() => void document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    expect(frameOf(container, V1)!.dataset.expanded).toBe("true");
+  });
+
+  test("Escape from inside the frame goes through the same gate: nothing while a confirm card shows", async () => {
+    actions.describeApprovalAction.mockResolvedValue({ status: "ready", descriptor });
+    const messages = [ask("u1", "Prepare it"), reply("a1", [presentPart(V1), approvalPart("ap-4")])];
+    const { container } = render(
+      <AgentChat threadId={THREAD} initialMessages={messages} notice={null} approvalsEnabled surfaces={[chainOf(hostSurface(V1, "View A"))]} fixture={{ expandedChainId: V1 }} />,
+    );
+    await screen.findByRole("group", { name: "Prepare this application?" });
+    expect(frameOf(container, V1)!.dataset.expanded).toBe("true");
+    act(() => viewHosts.get(V1)!.onEscape());
+    expect(frameOf(container, V1)!.dataset.expanded).toBe("true");
+  });
+
+  test("Escape from inside the frame collapses when no confirm card shows", () => {
+    const messages = [ask("u1", "Show me"), reply("a1", [presentPart(V1)])];
+    const { container } = render(
+      <AgentChat threadId={THREAD} initialMessages={messages} notice={null} surfaces={[chainOf(hostSurface(V1, "View A"))]} fixture={{ expandedChainId: V1 }} />,
+    );
+    expect(frameOf(container, V1)!.dataset.expanded).toBe("true");
+    act(() => viewHosts.get(V1)!.onEscape());
+    expect(frameOf(container, V1)!.dataset.expanded).toBeUndefined();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Expand view: View A" }));
+  });
+
+  test("a collapse whose view is gone puts focus in the composer (spec 08 S6.3)", () => {
+    const messages = [ask("u1", "Show me"), reply("a1", [presentPart(V1)])];
+    const { container } = render(
+      <AgentChat threadId={THREAD} initialMessages={messages} notice={null} surfaces={[chainOf(hostSurface(V1, "View A"))]} fixture={{ expandedChainId: V1 }} />,
+    );
+    // Within one mount a chain never leaves the page (chains only grow, and each renders
+    // somewhere), so the frame stands in for a view that went: it no longer answers to its
+    // chain when the collapse looks for it.
+    frameOf(container, V1)!.dataset.chainId = "gone";
+    act(() => void document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    expect(container.querySelector('.rf-view[data-expanded="true"]')).toBeNull();
+    expect(document.activeElement).toBe(composer());
+  });
+
+  test("the variant switcher is disabled while a view is expanded", () => {
+    const messages = [ask("u1", "Show me"), reply("a1", [presentPart(V1)])];
+    const variants = { thread: 1 as const, default: 1 as const, variant3Enabled: true };
+    render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} variants={variants} surfaces={[chainOf(hostSurface(V1, "View A"))]} />);
+    expect(screen.getAllByRole("radio").every((r) => !(r as HTMLInputElement).disabled)).toBe(true);
+    fireEvent.click(expandButton("View A"));
+    const radios = screen.getAllByRole("radio");
+    expect(radios.length).toBeGreaterThan(0);
+    expect(radios.every((r) => (r as HTMLInputElement).disabled)).toBe(true);
+  });
+
+  test('a turn that adds a new view while one is expanded says "New view ready."; Show it expands it in place of the first, with one history entry', async () => {
+    actions.loadSurfaceAction.mockResolvedValue(hostSurface(V2, "New view"));
+    fetchMock.mockImplementationOnce(async () => presentReply("a2", V2));
+    const { container } = render(<AgentChat threadId={THREAD} initialMessages={[ask("u1", "Show me"), reply("a1", [presentPart(V1)])]} notice={null} surfaces={[chainOf(hostSurface(V1, "View A"))]} />);
+    const before = window.history.length;
+    fireEvent.click(expandButton("View A"));
+    expect(window.history.length).toBe(before + 1);
+    sendText("Another one");
+    const status = await screen.findByText("New view ready.");
+    expect(dock(container).contains(status)).toBe(true);
+    // The first view is still the expanded one until Show it.
+    expect(frameOf(container, V1)!.dataset.expanded).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Show it" }));
+    expect(frameOf(container, V2)!.dataset.expanded).toBe("true");
+    expect(frameOf(container, V1)!.dataset.expanded).toBeUndefined();
+    expect(window.history.state).toEqual({ rfView: V2 });
+    expect(window.history.length).toBe(before + 1);
+    expect(screen.queryByText("New view ready.")).toBeNull();
+  });
+
+  test('a turn with only an answer says "Reply ready."; Back to conversation collapses the view', async () => {
+    const { container } = render(<AgentChat threadId={THREAD} initialMessages={[ask("u1", "Show me"), reply("a1", [presentPart(V1)])]} notice={null} surfaces={[chainOf(hostSurface(V1, "View A"))]} />);
+    fireEvent.click(expandButton("View A"));
+    sendText("Thanks, what next?");
+    await screen.findByText("Reply ready.");
+    fireEvent.click(screen.getByRole("button", { name: "Back to conversation" }));
+    expect(frameOf(container, V1)!.dataset.expanded).toBeUndefined();
+    expect(screen.queryByText("Reply ready.")).toBeNull();
+    expect(screen.getByText("Here are two roles.")).toBeTruthy();
+  });
+
+  test("an update that lands in a newer message keeps its chain expanded there, with no status line", async () => {
+    actions.loadSurfaceAction.mockResolvedValue(hostSurface(V2, "View A, updated", V1));
+    fetchMock.mockImplementationOnce(async () => presentReply("a2", V2));
+    const { container } = render(<AgentChat threadId={THREAD} initialMessages={[ask("u1", "Show me"), reply("a1", [presentPart(V1)])]} notice={null} surfaces={[chainOf(hostSurface(V1, "View A"))]} />);
+    fireEvent.click(expandButton("View A"));
+    sendText("Make it shorter");
+    await screen.findByRole("heading", { level: 3, name: "View A, updated" });
+    await waitFor(() => expect(container.querySelector(".rf-steps--done")).not.toBeNull());
+    const frames = [...container.querySelectorAll<HTMLElement>(".rf-view")];
+    expect(frames).toHaveLength(1);
+    const [frame] = frames;
+    expect(frame.dataset.chainId).toBe(V1);
+    expect(frame.dataset.expanded).toBe("true");
+    // It is the newer message's frame now; the older part says it was updated below.
+    expect(frame.closest(".rf-agent-message")!.textContent).toContain("Done.");
+    expect(isInert(frame)).toBe(false);
+    expect(document.documentElement.classList.contains("rf-view-expanded")).toBe(true);
+    expect(container.querySelector(".rf-agent-dock .rf-expanded-status")).toBeNull();
+    expect(window.history.state).toEqual({ rfView: V1 });
   });
 });

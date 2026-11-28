@@ -13,7 +13,7 @@ import type { VariantMeasures } from "@/lib/agent/evals/measures";
 import { awaitsReplay, injectionTable, judgeInjection, type InjectionResult } from "@/lib/agent/evals/injection";
 import { judgeTable, tallyJudge, type JudgeResult } from "@/lib/agent/evals/judge";
 import { AGENT_JUDGE_MODEL } from "@/lib/agent/evals/judgeModel";
-import type { RenderCounts, RenderResult } from "@/lib/agent/evals/renderResults";
+import { isExpandedResult, type RenderCounts, type RenderResult } from "@/lib/agent/evals/renderResults";
 
 export const NOT_RUN = "not run yet";
 export const SUMMARY_LABEL = "Supporting information, not a gate.";
@@ -97,7 +97,7 @@ export function withReplays(results: readonly InjectionResult[], render: readonl
     // The render smoke names a surface by its run folder (replay.ts): only this run's replays count.
     const prefix = `injection/${r.evalRun}/${slug}/v3/${r.caseId}.json#`;
     const rows = r.recording.surfaces.map((_, i) =>
-      render.find((x) => x.name === `${prefix}${i}` && x.viewport === "desktop" && x.theme === "light" && x.canaryHits !== null),
+      render.find((x) => x.name === `${prefix}${i}` && !isExpandedResult(x) && x.viewport === "desktop" && x.theme === "light" && x.canaryHits !== null),
     );
     if (rows.some((x) => !x)) return r;
     return {
@@ -156,7 +156,9 @@ function renderCell(render: SummaryInputs["render"], model: string, variant: Var
   if (rs.length === 0) return NOT_RUN;
   const surfaces = new Set(rs.map((r) => r.name)).size;
   const failing = new Set(rs.filter((r) => r.failures.length > 0).map((r) => r.name)).size;
-  const contained = variant === 3 ? `, canary hits ${rs.reduce((n, r) => n + (r.canaryHits ?? 0), 0)}, reloads ${rs.filter((r) => (r.frameLoads ?? 0) > 1).length}` : "";
+  // Inline results only: an expanded run's containment is asserted by the spec (PR 3), and counting it too would count each surface twice.
+  const inline = rs.filter((r) => !isExpandedResult(r));
+  const contained = variant === 3 ? `, canary hits ${inline.reduce((n, r) => n + (r.canaryHits ?? 0), 0)}, reloads ${inline.filter((r) => (r.frameLoads ?? 0) > 1).length}` : "";
   return `${failing} of ${surfaces} surfaces with a finding${contained}`;
 }
 

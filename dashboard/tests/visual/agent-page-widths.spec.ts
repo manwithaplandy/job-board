@@ -14,6 +14,11 @@ import { assertRuntimeContracts } from "./runtime-contracts";
 // transcript or follows it as an orphan, and that the page never scrolls sideways; then it
 // takes a screenshot named <route id>-w<width>-<theme>.png (ui-cohesion uses
 // -desktop-/-mobile-, so the names cannot collide).
+// An expanded state (its name ends "-expanded", spec 08 S6) also checks that the expanded
+// frame's box is the viewport (1px slack), that the composer is visible and that the point
+// at its centre belongs to the dock, so the dock is on top of the view and nothing covers
+// it. The regions behind the expanded view overlap it by design, so the overlap check is
+// left out there, and the screenshot is of the viewport (the view is fixed to it).
 
 const AUTHENTICATED_ONLY = process.env.VISUAL_SCOPE === "authenticated";
 const THEMES = ["light", "dark"] as const;
@@ -29,9 +34,36 @@ const STATES = [
   "agent-page-steps-working",
   "agent-page-steps-done",
   "agent-page-steps-open",
+  "agent-page-view-expanded",
+  "agent-page-code-expanded",
 ] as const;
 
 const REGIONS = [".rf-agent-threads", ".rf-agent-toolbar", ".rf-agent-transcript", ".rf-agent-composer"] as const;
+
+const isExpandedState = (state: string) => state.endsWith("-expanded");
+
+async function assertExpanded(page: Page, width: number) {
+  const box = await page.locator('.rf-view[data-expanded="true"]').boundingBox();
+  expect(box, `the expanded view is laid out at ${width}px`).not.toBeNull();
+  const viewport = page.viewportSize()!;
+  for (const [got, want, what] of [
+    [box!.x, 0, "x"],
+    [box!.y, 0, "y"],
+    [box!.width, viewport.width, "width"],
+    [box!.height, viewport.height, "height"],
+  ] as const) {
+    expect(Math.abs(got - want), `the expanded view's ${what} is ${got}, the viewport's ${want}, at ${width}px`).toBeLessThanOrEqual(1);
+  }
+  const composer = page.locator(".rf-agent-composer");
+  await expect(composer, `the composer is visible at ${width}px`).toBeVisible();
+  await expect(composer, `the composer is on screen at ${width}px`).toBeInViewport();
+  const onTop = await composer.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return hit !== null && hit.closest(".rf-agent-dock") !== null;
+  });
+  expect(onTop, `the point at the composer's centre is in the dock at ${width}px`).toBe(true);
+}
 
 async function assertAgentLayout(page: Page, state: (typeof STATES)[number], width: number) {
   const layout = await page.evaluate((selectors) => {
@@ -74,14 +106,14 @@ async function assertAgentLayout(page: Page, state: (typeof STATES)[number], wid
       innerWidth: window.innerWidth,
     };
   }, [...REGIONS]);
-  expect(layout.overlaps, `agent page regions overlap: ${JSON.stringify(layout)}`).toEqual([]);
+  if (!isExpandedState(state)) expect(layout.overlaps, `agent page regions overlap: ${JSON.stringify(layout)}`).toEqual([]);
   expect(layout.escapedTitles, "conversation titles wider than the list").toEqual([]);
   for (const selector of REGIONS) {
     expect(layout.found, `${selector} is shown`).toContain(selector);
   }
   expect(layout.surfaceColumn, `no surface column at ${width}px`).toBe(false);
   expect(layout.misplacedViews, `views outside the transcript at ${width}px`).toEqual([]);
-  if (state === "agent-page-surface" || state === "agent-page-view-updated" || state === "agent-page-view-degraded") {
+  if (state === "agent-page-surface" || state === "agent-page-view-updated" || state === "agent-page-view-degraded" || isExpandedState(state)) {
     expect(layout.views, `${state} shows its view at ${width}px`).toBe(1);
   }
   expect(layout.scrollWidth, `no horizontal page scroll at ${width}px`).toBeLessThanOrEqual(layout.innerWidth);
@@ -104,7 +136,8 @@ for (const width of WIDTHS) {
           await expect(page.locator("body")).toBeVisible();
           await assertRuntimeContracts(page);
           await assertAgentLayout(page, state, width);
-          await expect(page).toHaveScreenshot(`${route!.id}-w${width}-${theme}.png`, { fullPage: true });
+          if (isExpandedState(state)) await assertExpanded(page, width);
+          await expect(page).toHaveScreenshot(`${route!.id}-w${width}-${theme}.png`, { fullPage: !isExpandedState(state) });
         });
       }
     });

@@ -163,6 +163,8 @@ interface CaseRecord {
   intents: unknown[];
   fallbacks: unknown[];
   reports: unknown[];
+  /** Every load event of every iframe on the harness page (PR 3). */
+  loads: unknown[];
   popups: string[];
   pageUrlAfter: string | null;
   outcome: string | null;
@@ -187,7 +189,7 @@ class CaseRun {
       browser, case: name, lane, path: lane === "controls" ? "" : SANDBOX_LANES[lane], parentCsp: null, parentFrameSrcNone: null,
       gates: {}, staticCheck: [], probes: [], hits: null, hitsAsserted: lane === "frame-src-none",
       recordedReason: lane === "baseline-csp" ? "baseline-csp lane: the canary record is gate A18's input" : null,
-      frames: [], intents: [], fallbacks: [], reports: [],
+      frames: [], intents: [], fallbacks: [], reports: [], loads: [],
       popups: [], pageUrlAfter: null, outcome: null, notes: [],
     };
   }
@@ -377,7 +379,7 @@ async function frameStates(page: Page): Promise<FrameState[]> {
  * the canary read with "Target page, context or browser has been closed". So: count first,
  * and never wait.
  */
-async function harnessLog(page: Page, kind: "intents" | "fallbacks" | "reports"): Promise<unknown[]> {
+async function harnessLog(page: Page, kind: "intents" | "fallbacks" | "reports" | "loads"): Promise<unknown[]> {
   const output = page.locator(`output[data-sandbox-log="${kind}"]`);
   if ((await output.count()) === 0) return [];
   const text = await output.textContent({ timeout: 1_000 }).catch(() => null);
@@ -401,6 +403,7 @@ async function finishCase(run: CaseRun, settleMs: number) {
   run.record.intents = await harnessLog(run.page, "intents");
   run.record.fallbacks = await harnessLog(run.page, "fallbacks");
   run.record.reports = await harnessLog(run.page, "reports");
+  run.record.loads = await harnessLog(run.page, "loads");
   run.record.pageUrlAfter = run.page.url();
   run.record.hits = await readHits(run.request);
   run.record.probes = run.probes;
@@ -1184,6 +1187,96 @@ test.describe(`frame-src-none lane (${SANDBOX_LANES["frame-src-none"]})`, () => 
     expect(run.record.frames.map((f) => f.present), `${run.at}: both frames still mounted`).toEqual([true, true]);
     expectContained(run);
   });
+});
+
+// ---------------------------------------------------------------------------
+// The expanded view (PR 3, spec 08 S6.1, S14.3), in both lanes: expanding restyles the same
+// frame in place, so its document never reloads (a reload would be a second load, which the
+// host treats as a self-navigation and stores as a failure), and Escape inside the frame
+// closes the view through the kit's escape message.
+// ---------------------------------------------------------------------------
+
+/** The view frame's section around the case's frame. */
+const viewSection = (page: Page) => page.locator("[data-sandbox-surface] .rf-view").first();
+
+/** The section's box equals the viewport, within 1px (spec 08 S6.1's guard against a transformed ancestor). */
+async function expectFillsViewport(run: CaseRun) {
+  const viewport = run.page.viewportSize();
+  const box = await viewSection(run.page).boundingBox();
+  expect(viewport, `${run.at}: the page has a viewport`).not.toBeNull();
+  expect(box, `${run.at}: the expanded view has a box`).not.toBeNull();
+  for (const [got, want, what] of [
+    [box!.x, 0, "x"],
+    [box!.y, 0, "y"],
+    [box!.width, viewport!.width, "width"],
+    [box!.height, viewport!.height, "height"],
+  ] as const) {
+    expect(Math.abs(got - want), `${run.at}: the expanded view's ${what} is ${got}, the viewport's ${want}`).toBeLessThanOrEqual(1);
+  }
+}
+
+test.describe("expanded view (PR 3)", () => {
+  for (const lane of Object.keys(SANDBOX_LANES) as SandboxLane[]) {
+    test(`[${lane}] expand-no-reload: two clicks, then Expand and Close three times: one load, no failure, the count is still 2`, async ({
+      page,
+      request,
+      browserName,
+    }) => {
+      const run = await startCase(page, request, browserName, "expand-no-reload", lane);
+      requireControls(run, laneControls(lane, "expand-no-reload"));
+      await openHarness(run, lane, "expand-no-reload");
+      expect(await waitForProbe(run, "expand-no-reload", "done", 5_000), `${run.at}: the document ran its init`).toBe(true);
+      const frame = page.frameLocator("[data-sandbox-surface] iframe").first();
+      await frame.locator("#more").click();
+      await frame.locator("#more").click();
+      await expect(frame.locator("#count"), `${run.at}: the counter after two clicks`).toHaveText("2");
+      const section = viewSection(page);
+      for (let i = 0; i < 3; i++) {
+        await page.getByRole("button", { name: /^Expand view:/ }).click();
+        await expect(section, `${run.at}: expanded (round ${i + 1})`).toHaveAttribute("data-expanded", "true");
+        await expectFillsViewport(run);
+        await expect(frame.locator("#count"), `${run.at}: the counter while expanded (round ${i + 1})`).toHaveText("2");
+        await page.getByRole("button", { name: "Close expanded view" }).click();
+        await expect(section, `${run.at}: closed (round ${i + 1})`).not.toHaveAttribute("data-expanded", "true");
+      }
+      await expect(frame.locator("#count"), `${run.at}: the counter after three rounds`).toHaveText("2");
+      await finishCase(run, 1_000);
+      if (lane === "frame-src-none") expectNoHits(run);
+      expectAttempted(run, "expand-no-reload");
+      expect(run.record.loads, `${run.at}: the iframe loaded once (a second load is a reload)`).toHaveLength(1);
+      expect(run.record.reports, `${run.at}: no failure was stored`).toEqual([]);
+      expect(run.record.fallbacks, `${run.at}: the frame did not fall back`).toEqual([]);
+      expect(run.consoleProbes.filter((p) => p.t === "expand-no-reload" && p.k === "start"), `${run.at}: the document started once`).toHaveLength(1);
+      expectContained(run);
+    });
+
+    test(`[${lane}] escape-from-frame: Escape with focus inside the frame closes the expanded view and focus returns to Expand`, async ({
+      page,
+      request,
+      browserName,
+    }) => {
+      const run = await startCase(page, request, browserName, "escape-from-frame", lane);
+      requireControls(run, laneControls(lane, "escape-from-frame"));
+      await openHarness(run, lane, "escape-from-frame");
+      expect(await waitForProbe(run, "escape-from-frame", "done", 5_000), `${run.at}: the document ran its init`).toBe(true);
+      const section = viewSection(page);
+      await page.getByRole("button", { name: /^Expand view:/ }).click();
+      await expect(section, `${run.at}: expanded`).toHaveAttribute("data-expanded", "true");
+      expect(await clickInFrame(run, "#focus-me"), `${run.at}: the button inside the frame was clicked`).toBe(true);
+      await page.keyboard.press("Escape");
+      await expect(section, `${run.at}: Escape inside the frame closed the view`).not.toHaveAttribute("data-expanded", "true");
+      await expect(page.getByRole("button", { name: /^Expand view:/ }), `${run.at}: focus is back on Expand`).toBeFocused();
+      await waitForProbe(run, "escape-from-frame", "escapeSeen", 1_000);
+      const seen = probeValue(run.probes, "escape-from-frame", "escapeSeen") as { trusted?: boolean } | undefined;
+      expect(seen?.trusted, `${run.at}: the document saw a trusted Escape`).toBe(true);
+      await finishCase(run, 500);
+      if (lane === "frame-src-none") expectNoHits(run);
+      expectAttempted(run, "escape-from-frame");
+      expect(run.record.reports, `${run.at}: no failure was stored`).toEqual([]);
+      expect(run.record.fallbacks, `${run.at}: the frame did not fall back`).toEqual([]);
+      expectContained(run);
+    });
+  }
 });
 
 // ---------------------------------------------------------------------------

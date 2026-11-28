@@ -18,8 +18,9 @@ function intentOf(raw: unknown) {
 }
 
 describe("parseFrameMessage", () => {
-  test("accepts the seven kinds", () => {
+  test("accepts the eight kinds", () => {
     expect(parseFrameMessage({ type: "navigating" })).toEqual({ type: "navigating" });
+    expect(parseFrameMessage({ type: "escape" })).toEqual({ type: "escape" });
     expect(parseFrameMessage({ type: "ready" })).toEqual({ type: "ready" });
     expect(parseFrameMessage({ type: "inited" })).toEqual({ type: "inited" });
     expect(parseFrameMessage({ type: "pong", n: 3 })).toEqual({ type: "pong", n: 3 });
@@ -42,6 +43,7 @@ describe("parseFrameMessage", () => {
       { type: "init", data: {}, theme: "light" },
       { type: "navigate", url: "x" },
       { type: "ready", extra: 1 },
+      { type: "escape", x: 1 },
       { type: "resize", height: 300, width: 10 },
       { type: "resize", height: 20_001 },
       { type: "resize", height: -1 },

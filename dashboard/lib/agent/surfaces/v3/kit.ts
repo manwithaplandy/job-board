@@ -382,6 +382,30 @@ export const KIT_JS: string = `(function () {
     }, true);
   }
 
+  /* PR 3 (spec 08 S9.2): Escape leaves an expanded view, also when focus is in this frame,
+     where the host page gets no key events. The listener is registered here, before model
+     code, in the capture phase, so a model listener cannot stop it from running. Only a
+     trusted key press counts (isTrusted cannot be redefined by page script), so model code
+     cannot close the view by dispatching one. Whether the document handled the key
+     (preventDefault, for a menu of its own) is read once the event has finished
+     dispatching, with natives taken now. */
+  var keyOf = getterOf(KeyboardEvent.prototype, "key");
+  var preventedOf = getterOf(Event.prototype, "defaultPrevented");
+  var later = setTimeout;
+  window.addEventListener("keydown", function (e) {
+    var trusted = false;
+    var key = "";
+    try {
+      trusted = e.isTrusted === true;
+      key = keyOf ? keyOf(e) : "";
+    } catch (err) { return; }
+    if (!trusted || key !== "Escape") return;
+    later(function () {
+      try { if (!preventedOf || preventedOf(e)) return; } catch (err) { return; }
+      post({ type: "escape" });
+    }, 0);
+  }, true);
+
   function run(cb) {
     try { cb(state.data, state.theme); } catch (err) { report(errorText(err)); }
   }

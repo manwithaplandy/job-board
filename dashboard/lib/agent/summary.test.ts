@@ -8,6 +8,7 @@ vi.mock("@/lib/agent/threads", () => ({ saveThreadSummary: vi.fn() }));
 
 import type { UIMessage } from "ai";
 import { summarizeIfLong, summaryMessage } from "@/lib/agent/summary";
+import { VIEW_MESSAGE_MARKER } from "@/lib/agent/viewMessages";
 import { saveThreadSummary } from "@/lib/agent/threads";
 
 function turns(n: number): UIMessage[] {
@@ -67,6 +68,21 @@ test("an ask_user call reaches the summary as its questions", async () => {
   const model = summarizer();
   await summarizeIfLong(USER, THREAD, messages, { runId: "r", model, modelId: "m" });
   expect(JSON.stringify(model.doGenerateCalls[0].prompt)).toContain("[asked: What is your pay floor?]");
+});
+
+// Polish wave, M3 (spec 08 S10.4): a view's message reaches the summary marked as it reaches
+// the turn, never as the user's own words; the stored message is not changed.
+test("a message sent from a view reaches the summary call with the view marker; a typed one does not", async () => {
+  const messages = turns(41);
+  messages[2] = { id: "view-abc", role: "user", parts: [{ type: "text", text: "Compare the top two" }] };
+  messages[4] = { id: "u-typed", role: "user", parts: [{ type: "text", text: "Typed words" }] };
+  const model = summarizer();
+  await summarizeIfLong(USER, THREAD, messages, { runId: "r", model, modelId: "m" });
+  const prompt = JSON.stringify(model.doGenerateCalls[0].prompt);
+  expect(prompt).toContain(`user: ${VIEW_MESSAGE_MARKER}Compare the top two`);
+  expect(prompt).toContain("user: Typed words");
+  expect(prompt).not.toContain(`${VIEW_MESSAGE_MARKER}Typed words`);
+  expect(messages[2].parts).toEqual([{ type: "text", text: "Compare the top two" }]);
 });
 
 test("m1: the earlier summary goes into the re-summary prompt as data that cannot close its block", async () => {

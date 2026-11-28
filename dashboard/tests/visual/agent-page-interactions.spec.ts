@@ -41,6 +41,32 @@ async function waitForViewEntryGone(page: Page) {
   await expect.poll(() => page.evaluate(() => (history.state as { rfView?: unknown } | null)?.rfView ?? null)).toBeNull();
 }
 
+/**
+ * Fix wave I1: Send ignores presses for CHIP_ARM_MS (700 ms) after the frame's height last
+ * changed, as well as after the ask appeared. Waits until the sandbox frame's applied height
+ * has held still for longer than that, so a press is not lost to a late resize at load.
+ */
+async function waitForFrameStill(page: Page, stillMs = 900, capMs = 8_000) {
+  await page.evaluate(
+    async ({ still, cap }) => {
+      const t0 = performance.now();
+      let last = "";
+      let since = t0;
+      for (;;) {
+        const now = performance.now();
+        const h = [...document.querySelectorAll<HTMLIFrameElement>(".rf-sandbox__frame")].map((f) => f.style.height).join(",");
+        if (h !== last) {
+          last = h;
+          since = now;
+        } else if (now - since >= still) return;
+        if (now - t0 >= cap) return;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    },
+    { still: stillMs, cap: capMs },
+  );
+}
+
 function routePath(state: string): string {
   const route = VISUAL_ROUTES.find((entry) => entry.path === `/ui-gallery/states/${state}`);
   expect(route, `${state} is in the visual inventory`).toBeDefined();
@@ -230,6 +256,7 @@ for (const viewport of VIEWPORTS) {
       await composer.pressSequentially("A draft I am still writing");
       await expect(composer).toHaveValue("A draft I am still writing");
 
+      await waitForFrameStill(page);
       const sent = page.waitForRequest((req) => req.method() === "POST" && new URL(req.url()).pathname === "/api/agent");
       await page.getByRole("button", { name: `Send: ${ASK_PENDING_TEXT}` }).click();
       const body: unknown = (await sent).postDataJSON();

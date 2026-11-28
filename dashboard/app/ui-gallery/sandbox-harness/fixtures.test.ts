@@ -7,6 +7,8 @@ import {
   HARNESS_ASK_BIDI_SHOWN,
   HARNESS_ASK_SWAPPED,
   HARNESS_ASK_TEXT,
+  HARNESS_JOB_A,
+  HARNESS_SLIDE_PX,
   SANDBOX_CANARY_ORIGIN, SANDBOX_CANARY_PORT, SANDBOX_CASES, SANDBOX_CASE_NAMES, isSandboxCaseName, sandboxCase } from "./fixtures";
 
 // The harness's hostile documents (plan Task 2.7). The browsers themselves run in CI; these
@@ -112,6 +114,11 @@ describe("sandbox harness fixtures", () => {
     expect(sandboxCase("ask-swap").frames[0].html).toMatch(/}, 100\);/);
     expect(sandboxCase("ask-loop").frames[0].html).toMatch(/i < 40/);
     expect(sandboxCase("ask-oversize").frames[0].html).toMatch(/i < 281/);
+    // Fix wave M1: a valid third ask in the same click, so a closed gate cannot pass the case.
+    expect(sandboxCase("ask-oversize").frames[0].html).toContain(`P("valid", host.ask("${HARNESS_ASK_TEXT}"));`);
+    // Fix wave I1: ask-swap hides its probe log, so the swap does not grow the frame and the
+    // early press tests the swap's own arming, not the re-arm on a resize.
+    expect(sandboxCase("ask-swap").frames[0].html).toContain("#probe { display: none; }");
     // The bidi document carries escapes, so the raw controls never sit in this source file.
     const bidi = sandboxCase("ask-bidi").frames[0].html;
     expect(bidi).toContain("\\u202E");
@@ -121,6 +128,21 @@ describe("sandbox harness fixtures", () => {
     expect(normalizeAskText("Show the \u202Etop two\u202C\u200B roles\u0007\n\u2066now\u2069")).toBe(HARNESS_ASK_BIDI_SHOWN);
     expect(normalizeAskText("\u200B\u202E \u0007 \n\u2066\u2069")).toBeNull();
     expect(bidi).toContain('"Show the \\u202Etop two\\u202C\\u200B roles\\u0007\\n\\u2066now\\u2069"');
+  });
+
+  test("ask-resize-slide asks and acts only on clicks, shrinks itself by HARNESS_SLIDE_PX on the next pointer move, and never reaches out (fix wave I1)", () => {
+    expect(isSandboxCaseName("ask-resize-slide")).toBe(true);
+    const html = sandboxCase("ask-resize-slide").frames[0].html;
+    expect(html).toContain(`.sbx-tall { height: ${HARNESS_SLIDE_PX}px; }`);
+    expect(html).toContain('<div id="pad" class="sbx-tall"></div>');
+    // The probe log is hidden, so a probe line never changes the document's height.
+    expect(html).toContain("#probe { display: none; }");
+    expect(html).toContain(`host.ask("${HARNESS_ASK_TEXT}")`);
+    expect(html).toContain(`host.action("shortlist.set", { jobId: "${HARNESS_JOB_A}", state: "shortlisted" })`);
+    expect(html).toMatch(/addEventListener\("pointermove"/);
+    expect(html).toContain('pad.classList.remove("sbx-tall")');
+    expect(html).toContain('P("slid" + slides, { at: Date.now() })');
+    expect(html).not.toMatch(/\bfetch\b|new Image|location/);
   });
 
   test("the canary server listens on the port the fixtures name", () => {

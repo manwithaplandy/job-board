@@ -36,7 +36,11 @@
 // frame, a newer request replacing it, and only the user's press of the chip calls
 // onIntent with source "frame". The chip is keyed by its request number and ignores
 // presses for CHIP_ARM_MS after it appears or changes, so a frame cannot swap a new
-// request in under a press aimed at the old one (fix round 1, I3). High-risk intents then still answer with the fixed
+// request in under a press aimed at the old one (fix round 1, I3). It also ignores presses for
+// CHIP_ARM_MS after the request region last moved (fix wave I1): the region sits under the
+// iframe, and a view can change its own height to slide the chip or Send under a pointer aimed
+// at something else, so a resize that changes the applied frame height re-arms both (arming.ts).
+// High-risk intents then still answer with the fixed
 // ConfirmCard (the parent's handling of the outcome). The one exception is an open of a
 // workspace page with nothing else, which may run without a press once per surface.
 //
@@ -84,13 +88,14 @@ import { Button } from "@/components/ui/Button";
 import { BlockList } from "../blocks/BlockList";
 import type { BlockRows } from "../blocks/types";
 import { ViewHostContext } from "../ViewHostContext";
+import { CHIP_ARM_MS, isArmed, nextFrameHeight } from "./arming";
 
 /** The label of a variant 3 view; ViewFrame shows it in the view's header (spec 08 S5). */
 export const GENERATED_VIEW_LABEL = "Generated view";
 export const CHIP_PROMPT = "The view wants to:";
 export const CHIP_REGION_LABEL = "Requests from the generated view";
-/** A chip ignores presses for this long after it appears or its request changes (I3). */
-export const CHIP_ARM_MS = 700;
+/** A chip or Send ignores presses for this long after it appears, changes (I3) or moves (I1). */
+export { CHIP_ARM_MS };
 /** PR 6 (spec 08 S10.2): the caption over a view's pending ask, and its two buttons. */
 export const ASK_CAPTION = "Ask from this view";
 export const ASK_SEND_TEXT = "Send";
@@ -158,6 +163,13 @@ interface Live {
   askTotal: number;
   /** Bumped by every action and ask message, so only the newest request is shown. */
   requestSeq: number;
+  /** The frame height last applied from a resize message, in px. */
+  appliedHeight: number;
+  /**
+   * Fix wave I1: when a resize last changed the applied frame height, which moves the request
+   * region under it. A press on the chip or Send counts only CHIP_ARM_MS after this too.
+   */
+  movedAt: number;
 }
 
 type RequestEntry = { id: string; seq: number; shownAt: number; request: PendingRequest };
@@ -215,6 +227,8 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
       askTimes: [],
       askTotal: 0,
       requestSeq: 0,
+      appliedHeight: 0,
+      movedAt: Number.NEGATIVE_INFINITY,
     };
     liveRef.current = live;
     const iframe = document.createElement("iframe");
@@ -349,7 +363,15 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
           window.clearTimeout(pongTimer);
         }
       } else if (msg.type === "resize") {
-        iframe.style.height = `${Math.min(msg.height, V3_LIMITS.maxHeightPx)}px`;
+        // Fix wave I1: a change of the applied height moves the request region, so it re-arms
+        // a pending chip or Send. Recorded on every change: a press compares it with the
+        // request's own shownAt, so a move from before the request appeared changes nothing.
+        const next = nextFrameHeight(msg.height, live.appliedHeight, V3_LIMITS.maxHeightPx);
+        if (next.changed) {
+          live.appliedHeight = next.height;
+          live.movedAt = Date.now();
+          iframe.style.height = `${next.height}px`;
+        }
       } else if (msg.type === "error") {
         fail("frame_error");
       } else if (msg.type === "action") {
@@ -455,8 +477,8 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
             size="sm"
             data-sandbox-chip=""
             onClick={() => {
-              // A press within CHIP_ARM_MS of the chip appearing or changing is ignored.
-              if (Date.now() - entry.shownAt < CHIP_ARM_MS) return;
+              // A press within CHIP_ARM_MS of the chip appearing, changing or moving is ignored.
+              if (!isArmed(Date.now(), entry.shownAt, liveRef.current?.movedAt ?? Number.NEGATIVE_INFINITY)) return;
               setRequestState(null);
               onIntent(surface.id, pending.chip.intent, "frame");
             }}
@@ -489,8 +511,10 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
               aria-describedby={askBlocked !== null ? reasonId : undefined}
               onClick={() => {
                 // A press within CHIP_ARM_MS of the request appearing or changing is ignored,
-                // so a frame cannot swap the text in under a press aimed at the old one.
-                if (Date.now() - entry.shownAt < CHIP_ARM_MS) return;
+                // so a frame cannot swap the text in under a press aimed at the old one; and
+                // within CHIP_ARM_MS of the frame's height changing (fix wave I1), so a frame
+                // cannot slide Send under a press aimed at something else.
+                if (!isArmed(Date.now(), entry.shownAt, liveRef.current?.movedAt ?? Number.NEGATIVE_INFINITY)) return;
                 const sink = viewHostRef.current?.ask ?? null;
                 if (sink === null || sink.disabledReason !== null) return;
                 setRequestState(null);

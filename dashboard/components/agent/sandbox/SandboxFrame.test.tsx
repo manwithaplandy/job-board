@@ -317,6 +317,51 @@ describe("SandboxFrame", () => {
     expect(chips()).toHaveLength(0);
   });
 
+  test("a frame that changes its height re-arms a pending chip for 700 ms (fix wave I1)", async () => {
+    vi.useFakeTimers(LIVENESS_TIMERS);
+    actions.describeFrameIntentAction.mockResolvedValueOnce(chipFor(SHORTLIST_A, "Shortlist Staff Engineer at Acme"));
+    const { iframe, onIntent } = mount();
+    const { port } = ready(iframe);
+    await flush();
+    port.postMessage({ type: "resize", height: 400 });
+    port.postMessage({ type: "action", name: "shortlist.set", args: { jobId: JOB_A, state: "shortlisted" } });
+    await flush();
+    const chip = screen.getByRole("button", { name: "Shortlist Staff Engineer at Acme" });
+    // Long past the arm delay; then the view shrinks itself, sliding the chip up.
+    act(() => vi.advanceTimersByTime(2000));
+    port.postMessage({ type: "resize", height: 40 });
+    await flush();
+    expect(iframe.style.height).toBe("40px");
+    fireEvent.click(chip);
+    act(() => vi.advanceTimersByTime(CHIP_ARM_MS - 1));
+    fireEvent.click(chip);
+    expect(onIntent).not.toHaveBeenCalled();
+    expect(chips()).toHaveLength(1);
+    act(() => vi.advanceTimersByTime(1));
+    fireEvent.click(chip);
+    expect(onIntent).toHaveBeenCalledTimes(1);
+    expect(onIntent).toHaveBeenCalledWith(ID, SHORTLIST_A, "frame");
+  });
+
+  test("a resize that leaves the applied height as it was does not re-arm the chip (fix wave I1)", async () => {
+    vi.useFakeTimers(LIVENESS_TIMERS);
+    actions.describeFrameIntentAction.mockResolvedValueOnce(chipFor(SHORTLIST_A, "Shortlist Staff Engineer at Acme"));
+    const { iframe, onIntent } = mount();
+    const { port } = ready(iframe);
+    await flush();
+    port.postMessage({ type: "resize", height: 5000 });
+    port.postMessage({ type: "action", name: "shortlist.set", args: { jobId: JOB_A, state: "shortlisted" } });
+    await flush();
+    act(() => vi.advanceTimersByTime(2000));
+    // Same height again, and a taller one that the cap holds at 1200: the region did not move.
+    port.postMessage({ type: "resize", height: 6000 });
+    port.postMessage({ type: "resize", height: 1200 });
+    await flush();
+    expect(iframe.style.height).toBe("1200px");
+    fireEvent.click(screen.getByRole("button", { name: "Shortlist Staff Engineer at Acme" }));
+    expect(onIntent).toHaveBeenCalledTimes(1);
+  });
+
   test("the fallback shows the stored variant 1 payload the server returns", async () => {
     const s = surface();
     actions.reportSurfaceFailure.mockResolvedValue(fallbackSurface(s.gathered, "Stored fallback from the server"));
@@ -885,6 +930,51 @@ describe("a view's ask", () => {
     expect(send).toHaveBeenCalledWith("Compare the top two", ID, expect.any(Function));
     expect(sendButton()).toBeNull();
     expect(askText()).toBeNull();
+  });
+
+  test("a frame that changes its height re-arms Send for 700 ms (fix wave I1)", async () => {
+    vi.useFakeTimers(LIVENESS_TIMERS);
+    const { iframe, send } = mountAsk();
+    const { port } = ready(iframe);
+    await flush();
+    port.postMessage({ type: "resize", height: 400 });
+    port.postMessage({ type: "ask", text: "Compare the top two" });
+    await flush();
+    const button = sendButton()!;
+    act(() => vi.advanceTimersByTime(2000));
+    // The view grows itself on a pointer move: Send slides down under the pointer.
+    port.postMessage({ type: "resize", height: 640 });
+    await flush();
+    expect(iframe.style.height).toBe("640px");
+    fireEvent.click(button);
+    act(() => vi.advanceTimersByTime(CHIP_ARM_MS - 1));
+    fireEvent.click(button);
+    expect(send).not.toHaveBeenCalled();
+    expect(askText()).toBe("Compare the top two");
+    // Every further move re-arms it again from that move.
+    port.postMessage({ type: "resize", height: 500 });
+    await flush();
+    act(() => vi.advanceTimersByTime(CHIP_ARM_MS - 1));
+    fireEvent.click(button);
+    expect(send).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    fireEvent.click(button);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith("Compare the top two", ID, expect.any(Function));
+  });
+
+  test("the gallery's initialRequest is re-armed by a resize too (fix wave I1)", async () => {
+    vi.useFakeTimers(LIVENESS_TIMERS);
+    const { iframe, send } = mountAsk({ initialRequest: { kind: "ask", text: "Compare the top two" } });
+    const { port } = ready(iframe);
+    await flush();
+    port.postMessage({ type: "resize", height: 300 });
+    await flush();
+    fireEvent.click(sendButton()!);
+    expect(send).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(CHIP_ARM_MS));
+    fireEvent.click(sendButton()!);
+    expect(send).toHaveBeenCalledTimes(1);
   });
 
   // PR 6 review, minor 9: a send refused before the server accepted it shows the ask again.

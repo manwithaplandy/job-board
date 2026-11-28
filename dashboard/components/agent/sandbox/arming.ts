@@ -1,25 +1,28 @@
 // When a press on a frame's pending request counts (fix wave I1, spec 08 S10.2).
 //
 // A press on the action chip or on an ask's Send is ignored for CHIP_ARM_MS after the request
-// appeared or changed (fix round 1, I3), and also for CHIP_ARM_MS after the request region
-// last moved. The region sits under the iframe, whose height follows the view's document, so
-// a view can move Send or the chip under a pointer aimed at something else by changing its
-// own height. The host records the time it applied a new frame height (movedAt); a press
-// counts only once both clocks have run out.
+// appeared or changed (the request's own shownAt, fix round 1, I3), and for CHIP_ARM_MS after
+// the request region last moved. The region is host chrome under the iframe, so anything that
+// shifts it can slide Send or the chip under a pointer aimed at something else.
 //
-// Fix wave follow-up: the region moves for reasons outside its own frame too, so there is one
-// page-level move clock as well (module state, shared by every SandboxFrame on the page):
-//   - (a) another view's resize: every frame's applied-height change updates the page clock,
-//     so view A above cannot shrink itself and slide view B's Send or chip under the pointer;
-//   - (b) a scroll of the host page that no user wheel, touch, key or pointer press came just
-//     before (within SCROLL_INPUT_WINDOW_MS), such as a frame scrolling its ancestors from
-//     inside with scrollIntoView or focus(). The host cannot see a wheel the user turns over
-//     a frame, so such a scroll also re-arms: this fails closed (a press just after it is
-//     dropped), which is the safe side.
-//   - (c) fix wave follow-up 2: any view's request region (the chip, or a pending ask with
-//     Send and Dismiss, host chrome under the frame) changing height. A view can swap a tall
-//     pending ask for an action, which needs no user activation, and slide the controls of a
-//     view below it; each SandboxFrame observes its own region (watchRegionHeight).
+// Two move clocks are checked, and a pointer press counts only once both have run out:
+//   - the frame's own clock (`movedAt` on the frame's live state): when the host last applied
+//     a new height to this frame (nextFrameHeight: a repeated report moves nothing);
+//   - the page clock (module state, one per page, shared by every SandboxFrame), moved by
+//     noteFrameMoved for any of these, the frame's own included:
+//     (a) any frame's applied-height change, its leaving (teardown) or its fallback arriving,
+//         which moves every region below it, so view A above cannot shrink itself and slide
+//         view B's Send or chip under the pointer;
+//     (b) a scroll of the host page (any element's, seen by watchPageScroll's capture
+//         listener) that no trusted wheel, touch, key or pointer press came just before
+//         (within SCROLL_INPUT_WINDOW_MS), such as a frame scrolling its ancestors from inside
+//         with scrollIntoView or focus(). The host cannot see a wheel turned over a frame, so
+//         such a scroll re-arms too: this fails closed (a press just after it is dropped);
+//     (c) any request region changing height (watchRegionHeight, one ResizeObserver per
+//         SandboxFrame on its own region; regionMoved decides what counts): a view can swap a
+//         tall pending ask for an action, which needs no user activation, and slide the
+//         controls of a view below it. A region appearing empty moves nothing; one leaving
+//         with height moves the page.
 // A keyboard activation (a click with event.detail 0) skips both move clocks but never the
 // shownAt clock: a slide cannot aim a key press, and an honest view that keeps resizing would
 // otherwise leave Send dead to keyboard users.
@@ -49,9 +52,10 @@ export function isUnexplainedScroll(scrollAt: number, lastInputAt: number, windo
 
 /**
  * Whether a press on a request counts. `ownMovedAt` is the view's own last applied-height
- * change, `pageMovedAt` the page clock (any view's resize, or an unexplained scroll), and
- * `keyboard` whether the press came from a key (a click with detail 0), which skips the
- * move clocks but not shownAt.
+ * change; `pageMovedAt` is the page clock (pageMovedAtNow: any frame's applied-height change
+ * or leaving, any request region's height change, its own included, or an unexplained host
+ * scroll); `keyboard` is whether the press came from a key (a click with detail 0), which
+ * skips both move clocks but not shownAt.
  */
 export function pressCounts(a: { now: number; shownAt: number; ownMovedAt: number; pageMovedAt: number; keyboard: boolean }): boolean {
   const movedAt = a.keyboard ? Number.NEGATIVE_INFINITY : Math.max(a.ownMovedAt, a.pageMovedAt);
@@ -62,12 +66,19 @@ export function pressCounts(a: { now: number; shownAt: number; ownMovedAt: numbe
 let pageMovedAt = Number.NEGATIVE_INFINITY;
 let lastScrollInputAt = Number.NEGATIVE_INFINITY;
 
-/** The page clock: when any view's request region last moved for a reason outside its own frame. */
+/**
+ * The page clock: when any view's request region last moved, its own included (any frame's
+ * applied height or leaving, any request region's height, or an unexplained host scroll).
+ */
 export function pageMovedAtNow(): number {
   return pageMovedAt;
 }
 
-/** Records that some frame on the page applied a new height at `now` (moves every region below it). */
+/**
+ * Moves the page clock to `now` (never backwards): a frame applied a new height, left or got
+ * its fallback, a request region changed height (watchRegionHeight), or a host scroll went
+ * unexplained (noteScroll).
+ */
 export function noteFrameMoved(now: number): void {
   if (now > pageMovedAt) pageMovedAt = now;
 }

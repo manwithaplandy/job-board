@@ -488,7 +488,8 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
   const askSink = viewHost?.ask ?? null;
   const askBlocked = askSink === null ? ASK_UNAVAILABLE : askSink.disabledReason;
   // Whether a press on the pending request counts (arming.ts): CHIP_ARM_MS since it was shown,
-  // and, for a pointer press, since this frame, any frame or an unexplained scroll moved it.
+  // and, for a pointer press, since this frame or any frame resized or left, any request
+  // region (this one included) changed height, or an unexplained scroll moved the page.
   // `detail` 0 is a keyboard activation, which skips the move clocks.
   const armedPress = (e: RequestEntry, detail: number) =>
     pressCounts({

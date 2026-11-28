@@ -748,3 +748,50 @@ describe("jb-segmented", () => {
     expect(cssFor(".jb-segmented__option")).toMatch(/min-height: var\(--target-size\);/);
   });
 });
+
+describe("jb-tabs and jb-tab", () => {
+  test("a tablist over its panels: value is the index, change with a number, roving tabindex and arrow keys, 44px", async () => {
+    document.body.innerHTML = `<jb-tabs name="view" label="Views" value="1"><jb-tab label="Summary"><p>one</p></jb-tab><jb-tab label="Pay"><p>two</p></jb-tab><jb-tab label="Risks"><p>three</p></jb-tab></jb-tabs>`;
+    const tabs = document.querySelector("jb-tabs")!;
+    expect(value(tabs)).toBe(1);
+    await tick();
+    const list = tabs.querySelector('[role="tablist"]')!;
+    expect(list).not.toBeNull();
+    expect(list.getAttribute("aria-label")).toBe("Views");
+    const tab = [...list.querySelectorAll('[role="tab"]')] as HTMLElement[];
+    const panels = [...tabs.querySelectorAll("jb-tab")];
+    // Each tab's visible label is its own text, and it names its panel.
+    expect(tab.map((t) => t.textContent)).toEqual(["Summary", "Pay", "Risks"]);
+    expect(panels.map((p) => p.getAttribute("role"))).toEqual(["tabpanel", "tabpanel", "tabpanel"]);
+    expect(panels.map((p) => labelText(p))).toEqual(["Summary", "Pay", "Risks"]);
+    expect(tab.map((t) => t.getAttribute("aria-controls"))).toEqual(panels.map((p) => p.id));
+    expect(tab.map((t) => t.getAttribute("aria-selected"))).toEqual(["false", "true", "false"]);
+    expect(tab.map((t) => t.getAttribute("tabindex"))).toEqual(["-1", "0", "-1"]);
+    expect(panels.map((p) => p.hasAttribute("hidden"))).toEqual([true, false, true]);
+
+    tab[1].focus();
+    const seen = changes(() => {
+      press(tab[1], "ArrowRight");
+      press(tab[2], "ArrowRight"); // wraps
+      press(tab[0], "End");
+      press(tab[2], "Home");
+    });
+    expect(seen.map((c) => c.detail)).toEqual([
+      { name: "view", value: 2 },
+      { name: "view", value: 0 },
+      { name: "view", value: 2 },
+      { name: "view", value: 0 },
+    ]);
+    expect(seen.every((c) => c.bubbles && c.custom)).toBe(true);
+    expect(document.activeElement).toBe(tab[0]);
+    expect(panels.map((p) => p.hasAttribute("hidden"))).toEqual([false, true, true]);
+    expect(value(tabs)).toBe(0);
+
+    expect(changes(() => tab[2].click()).map((c) => c.detail)).toEqual([{ name: "view", value: 2 }]);
+    expect(changes(() => Reflect.set(tabs, "value", 1))).toEqual([]);
+    expect(panels.map((p) => p.hasAttribute("hidden"))).toEqual([true, false, true]);
+    expect(tab.map((t) => t.getAttribute("tabindex"))).toEqual(["-1", "0", "-1"]);
+
+    expect(cssFor(".jb-tabs__tab")).toMatch(/min-height: var\(--target-size\);/);
+  });
+});

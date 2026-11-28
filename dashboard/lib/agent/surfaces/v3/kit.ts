@@ -281,7 +281,25 @@ jb-select > option, jb-segmented > option { display: none; }
   user-select: none;
 }
 .jb-segmented__option[aria-checked="true"] { background: var(--bg-surface); color: var(--text-primary); box-shadow: var(--elevation-card); }
-.jb-select__button:focus-visible, .jb-slider__input:focus-visible, .jb-toggle__switch:focus-visible, .jb-segmented__option:focus-visible {
+jb-tab { display: block; padding-top: var(--space-3); }
+jb-tab[hidden] { display: none; }
+.jb-tabs__list { display: flex; flex-wrap: wrap; gap: var(--space-1); border-bottom: 1px solid var(--border); }
+.jb-tabs__tab {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-size);
+  min-width: var(--target-size);
+  padding: 0 var(--space-3);
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-control);
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+.jb-tabs__tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent-solid); }
+.jb-select__button:focus-visible, .jb-slider__input:focus-visible, .jb-toggle__switch:focus-visible, .jb-segmented__option:focus-visible,
+.jb-tabs__tab:focus-visible, jb-tab:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
   box-shadow: 0 0 0 4px var(--focus-halo);
@@ -1234,6 +1252,88 @@ export const KIT_JS: string = `(function () {
         var i = indexOfValue(st.options, v);
         if (i >= 0 && st.show) st.show(i);
       } else setAttr(this, "value", v);
+    }
+  });
+
+  /* <jb-tabs name label value> with <jb-tab label> children: a tablist the kit puts before
+     the panels, one tab stop (roving tabindex), arrow, Home and End keys move and select
+     (automatic activation), and only the selected panel shows. value is the index. */
+  function buildTabs(host, st) {
+    if (st.built) return;
+    st.built = true;
+    var kids = childrenOf(host);
+    var panels = [];
+    for (var i = 0; i < collectionLength(kids); i++) if (localNameOf(kids[i]) === "jb-tab") panels[panels.length] = kids[i];
+    st.count = panels.length;
+    var list = node("div", "jb-tabs__list");
+    setAttr(list, "role", "tablist");
+    var label = getAttr(host, "label");
+    if (label !== null && label !== "") setAttr(list, "aria-label", label);
+    var tabs = [];
+    function show(i) {
+      st.index = i;
+      for (var j = 0; j < tabs.length; j++) {
+        setAttr(tabs[j], "aria-selected", j === i ? "true" : "false");
+        setAttr(tabs[j], "tabindex", j === i ? "0" : "-1");
+        if (j === i) dropAttribute(panels[j], "hidden"); else setAttr(panels[j], "hidden", "");
+      }
+    }
+    function pick(i, focus) {
+      var changed = i !== st.index;
+      show(i);
+      if (focus) focusOn(tabs[i]);
+      if (changed) emitChange(host, i);
+    }
+    function wire(i) {
+      listen(tabs[i], "click", function () { pick(i, true); });
+      listen(tabs[i], "keydown", function (e) {
+        var k = keyName(e);
+        if (k === " " || k === "Enter") { cancelEvent(e); pick(i, false); return; }
+        var to = rovingTarget(k, i, tabs.length);
+        if (to < 0) return;
+        cancelEvent(e);
+        pick(to, true);
+      });
+    }
+    for (var t = 0; t < panels.length; t++) {
+      var tabId = nextId("tab");
+      var panelId = getAttr(panels[t], "id") || nextId("panel");
+      var tab = node("span", "jb-tabs__tab", getAttr(panels[t], "label") || "Tab " + (t + 1));
+      setAttr(tab, "role", "tab");
+      setAttr(tab, "id", tabId);
+      setAttr(tab, "aria-controls", panelId);
+      setAttr(panels[t], "id", panelId);
+      setAttr(panels[t], "role", "tabpanel");
+      setAttr(panels[t], "aria-labelledby", tabId);
+      setAttr(panels[t], "tabindex", "0");
+      tabs[t] = tab;
+      appendTo(list, tab);
+      wire(t);
+    }
+    insertInto(host, list, firstChildOf(host));
+    st.show = show;
+    var start = M.floor(numAttr(host, "value", 0));
+    if (panels.length > 0) show(start >= 0 && start < panels.length ? start : 0);
+  }
+  defineOnce("jb-tabs", class extends HTMLElement {
+    connectedCallback() {
+      if (this.jbTabs) return;
+      var self = this;
+      var st = { built: false, index: -1, count: 0, show: null };
+      this.jbTabs = st;
+      whenParsed(function () { buildTabs(self, st); });
+    }
+    get value() {
+      var st = this.jbTabs;
+      if (st && st.built) return st.index < 0 ? 0 : st.index;
+      return M.floor(numAttr(this, "value", 0));
+    }
+    set value(v) {
+      var st = this.jbTabs;
+      var i = M.floor(toNumber(v));
+      if (st && st.built) {
+        if (i >= 0 && i < st.count && st.show) st.show(i);
+      } else if (finite(i)) setAttr(this, "value", String(i));
     }
   });
 

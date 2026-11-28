@@ -24,7 +24,17 @@ vi.mock("@/lib/db", () => ({
 import type { ToolCtx } from "@/lib/agent/tools";
 import { buildTools } from "@/lib/agent/tools";
 import { assertNoUserIdInput } from "@/lib/agent/tools/assertNoUserIdInput";
-import { finishPendingRepair, presentTool, presentToolOutput, REPAIR_NOT_ATTEMPTED, runPresent, VIEW_LIMIT_ERROR } from "@/lib/agent/tools/present";
+import {
+  finishPendingRepair,
+  PRESENT_GRAMMAR,
+  presentDescription,
+  presentTool,
+  presentToolOutput,
+  REPAIR_NOT_ATTEMPTED,
+  runPresent,
+  singlePresentDescription,
+  VIEW_LIMIT_ERROR,
+} from "@/lib/agent/tools/present";
 import { AGENT_LIMITS } from "@/lib/agent/config";
 import { fallbackSurface } from "@/lib/agent/surfaces/v1/fallback";
 import { gatheredFixture, JOB_A } from "@/lib/agent/surfaces/v1/testFixtures";
@@ -619,4 +629,23 @@ test.each([1, 2, 3] as const)("variant %i: present's description allows up to 3 
   );
   expect(description).toContain("You may show up to 3 views in one turn");
   expect(description).toContain("outcome limit");
+});
+
+// PR 7 (inline-UI spec S9.7): the variant 3 tool description prefers an interactive view.
+describe("PRESENT_GRAMMAR (PR 7)", () => {
+  test("variant 3 prefers an interactive view over a list of rows; variants 1 and 2 are unchanged", () => {
+    expect(PRESENT_GRAMMAR[3]).toContain("Prefer an interactive view over a list of rows.");
+    expect(presentDescription(3)).toContain("Prefer an interactive view over a list of rows.");
+    expect(singlePresentDescription(3)).toContain("Prefer an interactive view over a list of rows.");
+    for (const v of [1, 2] as const) expect(PRESENT_GRAMMAR[v]).not.toContain("Prefer an interactive view");
+    expect(PRESENT_GRAMMAR[1]).toBe(
+      "Show the user a surface: an ordered list of 1 to 8 blocks from the fixed catalog. Blocks name jobs, metrics " +
+        "and proposals by the ids your tools returned this turn; the app fills in the data.",
+    );
+    expect(PRESENT_GRAMMAR[2]).toBe(
+      "Show the user a surface: a tree of layout, content, input and bound nodes styled only by token enums. Bound " +
+        "nodes name jobs your tools returned this turn and binds point into the data read this turn; the app fills in " +
+        "the values.",
+    );
+  });
 });

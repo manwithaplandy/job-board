@@ -174,7 +174,8 @@ export function presentJsonSchema(variant: Variant = 1): JSONSchema7 {
   };
 }
 
-const PRESENT_GRAMMAR: Record<Variant, string> = {
+/** The first sentences of the tool description per variant. Exported for its test. */
+export const PRESENT_GRAMMAR: Record<Variant, string> = {
   1:
     "Show the user a surface: an ordered list of 1 to 8 blocks from the fixed catalog. Blocks name jobs, metrics " +
     "and proposals by the ids your tools returned this turn; the app fills in the data.",
@@ -184,7 +185,8 @@ const PRESENT_GRAMMAR: Record<Variant, string> = {
     "the values.",
   3:
     "Show the user a surface: one self-contained HTML document written against the injected kit, shown in a " +
-    "sandboxed frame with no network. The data read this turn reaches it through host.onInit.",
+    "sandboxed frame with no network. The data read this turn reaches it through host.onInit. Prefer an interactive " +
+    "view over a list of rows.",
 };
 
 /**

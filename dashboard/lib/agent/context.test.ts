@@ -1,7 +1,7 @@
 // The system instructions' data blocks (PR C batch 3 review M1 and M6).
 import { describe, expect, test } from "vitest";
 import { buildInstructions, fixedRules, scenarioRules, variantGrammar } from "@/lib/agent/context";
-import { KIT_CSS } from "@/lib/agent/surfaces/v3/kit";
+import { KIT_CSS, KIT_JS } from "@/lib/agent/surfaces/v3/kit";
 import { validateSurfaceV3 } from "@/lib/agent/surfaces/v3/document";
 import type { ProfileSummary } from "@/lib/workspaces/types";
 
@@ -185,5 +185,151 @@ describe("buildInstructions: a view's ask", () => {
     expect(b).toBe(a);
     expect(a).toContain(VIEW_RULE);
     expect(a.indexOf(VIEW_RULE)).toBeLessThan(a.indexOf("<user_profile>"));
+  });
+});
+
+// PR 7 (inline-UI spec S9.7): the variant 3 grammar describes a good view, the kit and ask.
+// Snapshots of variants 1 and 2 taken before PR 7 (sha256 of the JSON of the string list):
+// PR 7 must leave them byte for byte as they were.
+const GRAMMAR_SHA256: Record<1 | 2, string> = {
+  1: "209f1f6cbffdae3bcf048431b7945198cad97731e66d4f8995ad39d56e3e2796",
+  2: "ec33acc9a105d22b1eb04928228f3e14cb3537888857d9e7de0ae41381bb154d",
+};
+
+// S9.3, S9.4 and S9.5: every class, element and helper the grammar must name.
+const KIT_CLASSES = [
+  "jb-stack", "jb-row", "jb-gap-1", "jb-gap-6", "jb-grid", "jb-cols-2", "jb-cols-3", "jb-split", "jb-toolbar",
+  "jb-h1", "jb-h2", "jb-h3", "jb-stat", "jb-stat__value", "jb-stat__label", "jb-divider", "jb-scroll-x", "jb-table",
+  "jb-timeline", "jb-timeline__item", "jb-meter", "jb-meter__fill", "jb-hidden",
+  "jb-card", "jb-badge", "jb-muted", "jb-secondary", "jb-small", "jb-caption", "jb-success", "jb-warning", "jb-danger", "jb-accent",
+];
+const KIT_ELEMENTS = ["<jb-button>", "<jb-field>", "<jb-select>", "<jb-slider>", "<jb-toggle>", "<jb-segmented>", "<jb-tabs>", "<jb-tab>"];
+const KIT_HELPERS = [
+  "host.el(", "host.chart(", "host.table(", "host.format.number(", "host.format.percent(", "host.format.days(",
+  "host.format.date(", "host.format.pay(", "host.job(", "onSelect", "onRowSelect", "pageSize",
+];
+
+describe("variantGrammar(3): code mode (PR 7, spec 08 S9.7)", () => {
+  const g = variantGrammar(3);
+
+  test("variants 1 and 2 are byte-identical to before PR 7", async () => {
+    const { createHash } = await import("node:crypto");
+    for (const v of [1, 2] as const) {
+      expect(createHash("sha256").update(JSON.stringify(variantGrammar(v))).digest("hex"), `variant ${v}`).toBe(GRAMMAR_SHA256[v]);
+    }
+  });
+
+  test("it has exactly six strings", () => {
+    expect(g).toHaveLength(6);
+  });
+
+  test("string 1 keeps the shape and agrees with rule 7: replies are prose with simple Markdown", () => {
+    for (const fact of ["{ variant: 3, title, html }", "60,000 bytes", "sandboxed frame", "no network", "kit"]) expect(g[0], fact).toContain(fact);
+    expect(g[0]).toContain("simple Markdown");
+    expect(g.join("\n")).not.toMatch(/plain text/i);
+  });
+
+  test("string 2 keeps the data facts and adds host.job", () => {
+    expect(g[1]).toContain("host.onInit(function (data, theme) { ... }), never at top level");
+    for (const key of ["profile", "jobs", "reviews", "memo", "shortlist", "applications", "documents", "metrics", "no posting links", "host.job("]) {
+      expect(g[1], key).toContain(key);
+    }
+  });
+
+  test("string 3 says what to build", () => {
+    expect(g[2]).toContain("Build the view a person would want for this question, not a list of rows.");
+    expect(g[2]).toContain("The view must work at 340px wide and at 1400px wide");
+    expect(g[2]).toContain("A plain list is right only for a handful of items with nothing to compare.");
+    expect(g[2]).toContain("The user can expand the view to full screen.");
+  });
+
+  test("string 4 names every class, element and helper of the kit, and the data sentence", () => {
+    for (const name of [...KIT_CLASSES, ...KIT_ELEMENTS, ...KIT_HELPERS]) expect(g[3], name).toContain(name);
+    expect(g[3]).toContain("Put every value from data into the page with host.el or textContent");
+    expect(g[3]).toContain("format pay, dates and percentages with host.format, so what you show is what was stored.");
+    for (const viz of ["bar", "hbar", "stacked", "line", "area", "sparkline", "scatter", "donut"]) expect(g[3], viz).toContain(viz);
+    for (const tone of ["stage", "good", "bad", "amber", "violet", "muted"]) expect(g[3], tone).toContain(tone);
+    // PR 5 review: onSelect gives one tab stop per mark, so only on small charts.
+    expect(g[3]).toMatch(/onSelect only on a small chart/);
+    expect(g[3]).toMatch(/table or list with a filter/);
+  });
+
+  test("every class it names exists in the kit's CSS, and every element and helper exists in the kit", () => {
+    for (const cls of KIT_CLASSES) expect(KIT_CSS, cls).toContain(`.${cls}`);
+    for (const el of KIT_ELEMENTS) {
+      const name = el.slice(1, -1);
+      if (name === "jb-tab") continue; // a child of <jb-tabs>, read by the kit, not defined
+      expect(KIT_JS, name).toMatch(new RegExp(`(?:defineOnce|customElements\\.define)\\("${name}"`));
+    }
+    for (const key of ["el: buildEl", "format: format", "job: jobOf", "table: table", "chart: chart", "ask: ask"]) expect(KIT_JS, key).toContain(key);
+    for (const fmt of ["number: fmtNumber", "percent: fmtPercent", "days: fmtDays", "date: fmtDate", "pay: fmtPay"]) expect(KIT_JS, fmt).toContain(fmt);
+    expect(KIT_JS).toContain("spec.onSelect");
+    expect(KIT_JS).toContain("spec.onRowSelect");
+    expect(KIT_JS).toContain("spec.pageSize");
+  });
+
+  test("string 5: actions as today, then ask", () => {
+    for (const action of ["shortlist.set", "application.set_stage", "application.prepare", "compare", "open", "memo.review"]) expect(g[4], action).toContain(action);
+    expect(g[4]).toContain("each request becomes a button under the view that the user must press");
+    expect(g[4]).toContain("at most 280 characters");
+    expect(g[4]).toContain("It works only from a click or key press");
+    expect(g[4]).toContain("never build it from job, company or review text");
+    expect(g[4]).toContain("The app shows the text under the view and the user presses Send.");
+    for (const helper of ["host.ask(text)", '<jb-button ask=', "host.action(name, args)"]) expect(g[4], helper).toContain(helper);
+  });
+
+  test("string 6: the restrictions as today, plus dynamic styles from script", () => {
+    for (const rule of ["inline style=", "on...= handler", "href or target", "<link>", "<meta>", "<base>", "window.open", "top navigation", "WebRTC"]) {
+      expect(g[5], rule).toContain(rule);
+    }
+    expect(g[5]).toContain("element.style.setProperty");
+    expect(g[5]).toContain("Set dynamic styles from script with element.style.setProperty; style attributes in markup are refused.");
+  });
+
+  test("the variant 3 prefix is byte-identical across two turns", () => {
+    const a = buildInstructions({ ...base, variant: 3, profile, memoText: "Remote only" });
+    const b = buildInstructions({ ...base, variant: 3, profile: { ...profile }, memoText: "Remote only" });
+    expect(b).toBe(a);
+    for (const s of g) expect(a.indexOf(s)).toBeGreaterThan(-1);
+    for (const s of g) expect(a.indexOf(s)).toBeLessThan(a.indexOf("<user_profile>"));
+  });
+});
+
+// PR 7, the 2026-11-28 live check (rulings 1 to 3): two rules every variant shares.
+const EARLIER_STYLE_RULE =
+  "Views from earlier turns may be in another answer style than this turn's, because the user can switch " +
+  "the style at any time. That is expected: each still displays correctly in the style it was made in. Never " +
+  "comment on it, call such a view wrong, broken or outdated, or offer to redo it unless the user asks.";
+const PROSE_AFTER_VIEWS_RULE =
+  "When a view carries the data, your text adds only what the view does not show: a one- or two-sentence " +
+  "takeaway, a recommendation or a question. Do not restate the view's rows, items or figures in prose.";
+
+describe("buildInstructions: views of earlier turns and prose after views (PR 7 live check)", () => {
+  test.each([1, 2, 3] as const)("variant %i: both rules are in the shared rules, before the variant's grammar", (variant) => {
+    const rules = fixedRules({ frozen: false, variant, unattended: false });
+    const grammarAt = rules.indexOf(`Layout variant: ${variant}.`);
+    for (const rule of [EARLIER_STYLE_RULE, PROSE_AFTER_VIEWS_RULE]) {
+      expect(rules.filter((r) => r === rule)).toHaveLength(1);
+      expect(rules.indexOf(rule)).toBeLessThan(grammarAt);
+      expect(variantGrammar(variant).join("\n")).not.toContain(rule);
+    }
+    expect(scenarioRules({ unattended: false })).toEqual(expect.arrayContaining([EARLIER_STYLE_RULE, PROSE_AFTER_VIEWS_RULE]));
+  });
+
+  test("an unattended run, which shows no views, gets neither", () => {
+    const text = fixedRules({ frozen: false, variant: 1, unattended: true }).join("\n");
+    expect(text).not.toContain(EARLIER_STYLE_RULE);
+    expect(text).not.toContain(PROSE_AFTER_VIEWS_RULE);
+  });
+
+  test("the rules keep the prefix byte-identical across turns, and the fixed rule positions hold", () => {
+    for (const variant of [1, 2, 3] as const) {
+      const a = buildInstructions({ ...base, variant, profile, memoText: "Berlin" });
+      const b = buildInstructions({ ...base, variant, profile: { ...profile }, memoText: "Berlin" });
+      expect(b).toBe(a);
+      const rules = fixedRules({ frozen: false, variant, unattended: false });
+      expect(rules[6]).toBe(RULE_7);
+      expect(rules[7]).toBe(VIEW_RULE);
+    }
   });
 });

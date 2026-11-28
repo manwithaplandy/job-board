@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { KIT_CSS, KIT_JS } from "@/lib/agent/surfaces/v3/kit";
 import { payLabel } from "@/components/agent/blocks/shared";
 import type { ReviewFacts } from "@/lib/workspaces/types";
+import { sha256Base64 } from "@/lib/agent/surfaces/v3/sha256";
 
 interface KitHost {
   readonly data: unknown;
@@ -958,5 +959,45 @@ describe("host.job", () => {
       expect({ name, set: Reflect.set(h, name, () => "x") }).toEqual({ name, set: false });
     }
     expect(Reflect.set(h.format, "pay", () => "x")).toBe(false);
+  });
+});
+
+// PR 5 Task 5.5, written before host.chart changed: today's SVG for bar, line and sparkline
+// (and the bar drawing any other viz name fell back to). Stored documents must render as
+// before, so these stay as they are. The 60-point case is held as a hash of its SVG.
+describe("host.chart: bar, line and sparkline as before PR 5", () => {
+  function svgOf(spec: unknown): string {
+    document.body.innerHTML = `<div id="snap"></div>`;
+    const el = document.getElementById("snap")!;
+    host().chart(el, spec);
+    const svg = el.querySelector("svg");
+    // Today the SVG is the element's first child and the drawing.
+    expect(el.firstElementChild).toBe(svg);
+    return svg ? svg.outerHTML : "";
+  }
+  const POINTS = [
+    { label: "<b>a</b>", value: 2 },
+    { label: "b", value: 4 },
+    { label: "c", value: -1 },
+    { label: "a label that runs well past the forty character limit", value: 3.5, tone: "good" },
+  ];
+
+  test("bar", () => {
+    expect(svgOf({ viz: "bar", title: "Stages", points: POINTS })).toMatchInlineSnapshot(`"<svg viewBox="0 0 320 160" role="img" class="jb-chart" aria-label="Stages"><line x1="0" y1="136" x2="320" y2="136" class="jb-chart-axis"></line><rect x="12.0" y="74.0" width="56.0" height="62.0" class="jb-chart-bar"><title>&lt;b&gt;a&lt;/b&gt;: 2</title></rect><rect x="92.0" y="12.0" width="56.0" height="124.0" class="jb-chart-bar"><title>b: 4</title></rect><rect x="172.0" y="136.0" width="56.0" height="0.0" class="jb-chart-bar"><title>c: 0</title></rect><rect x="252.0" y="27.5" width="56.0" height="108.5" class="jb-chart-bar"><title>a label that runs well past the forty ch: 3.5</title></rect><text x="40.0" y="154" text-anchor="middle" class="jb-chart-label">&lt;b&gt;a&lt;/b&gt;</text><text x="120.0" y="154" text-anchor="middle" class="jb-chart-label">b</text><text x="200.0" y="154" text-anchor="middle" class="jb-chart-label">c</text><text x="280.0" y="154" text-anchor="middle" class="jb-chart-label">a label that runs well past the forty ch</text></svg>"`);
+  });
+  test("line", () => {
+    expect(svgOf({ viz: "line", title: "Weekly", points: [...POINTS, { label: "e", value: Number.NaN }] })).toMatchInlineSnapshot(`"<svg viewBox="0 0 320 160" role="img" class="jb-chart" aria-label="Weekly"><line x1="0" y1="136" x2="320" y2="136" class="jb-chart-axis"></line><polyline points="32.0,74.0 96.0,12.0 160.0,136.0 224.0,27.5 288.0,136.0" class="jb-chart-line"></polyline><text x="32.0" y="154" text-anchor="middle" class="jb-chart-label">&lt;b&gt;a&lt;/b&gt;</text><text x="96.0" y="154" text-anchor="middle" class="jb-chart-label">b</text><text x="160.0" y="154" text-anchor="middle" class="jb-chart-label">c</text><text x="224.0" y="154" text-anchor="middle" class="jb-chart-label">a label that runs well past the forty ch</text><text x="288.0" y="154" text-anchor="middle" class="jb-chart-label">e</text></svg>"`);
+  });
+  test("sparkline", () => {
+    expect(svgOf({ viz: "sparkline", title: "Trend", points: POINTS })).toMatchInlineSnapshot(`"<svg viewBox="0 0 320 160" role="img" class="jb-chart" aria-label="Trend"><line x1="0" y1="136" x2="320" y2="136" class="jb-chart-axis"></line><polyline points="40.0,74.0 120.0,12.0 200.0,136.0 280.0,27.5" class="jb-chart-line"></polyline></svg>"`);
+  });
+  test("no title, no points, and an unknown viz name", () => {
+    expect(svgOf({ viz: "bar" })).toMatchInlineSnapshot(`"<svg viewBox="0 0 320 160" role="img" class="jb-chart" aria-label="Chart"><line x1="0" y1="136" x2="320" y2="136" class="jb-chart-axis"></line></svg>"`);
+    expect(svgOf({ viz: "pie", title: "Fallback", points: POINTS.slice(0, 2) })).toMatchInlineSnapshot(`"<svg viewBox="0 0 320 160" role="img" class="jb-chart" aria-label="Fallback"><line x1="0" y1="136" x2="320" y2="136" class="jb-chart-axis"></line><rect x="24.0" y="74.0" width="112.0" height="62.0" class="jb-chart-bar"><title>&lt;b&gt;a&lt;/b&gt;: 2</title></rect><rect x="184.0" y="12.0" width="112.0" height="124.0" class="jb-chart-bar"><title>b: 4</title></rect><text x="80.0" y="154" text-anchor="middle" class="jb-chart-label">&lt;b&gt;a&lt;/b&gt;</text><text x="240.0" y="154" text-anchor="middle" class="jb-chart-label">b</text></svg>"`);
+  });
+  test("60 points draw the first 50", () => {
+    const many = Array.from({ length: 60 }, (_, i) => ({ label: `w${i}`, value: (i * 7) % 13 }));
+    expect(sha256Base64(svgOf({ viz: "bar", title: "Many", points: many }))).toMatchInlineSnapshot(`"3EYJS0e3apsVF4r/Uj532QwG/Y4tQAB5pmO9jmO/v7Q="`);
+    expect(sha256Base64(svgOf({ viz: "line", title: "Many", points: many }))).toMatchInlineSnapshot(`"hKgNm3VJI88Qa9dlK+7VlzSDK/5lIzFlL4PX313OCyY="`);
   });
 });

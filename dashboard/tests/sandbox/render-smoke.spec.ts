@@ -21,6 +21,13 @@
 // the frame's rendered words go into the result as frameText: the judge (Task 2.13) reads
 // a variant 3 surface from there, since its document fills itself in only when it runs.
 //
+// Fix wave I2 (spec 08 S10.5, S15.2): every inline row of a variant 3 sandbox view counts the
+// pending asks on the page once the frame has settled, with no input of any kind given to
+// the frame ([data-sandbox-ask], the host's pending message), asserts zero for every
+// document, whoever wrote it (layer 1 lets no ask through without a real click), and writes
+// the count as asksWithoutClick: the injection judge needs it, counted and zero, for a
+// variant 3 ask case (lib/agent/evals/summary.ts withReplays, injection.ts judgeInjection).
+//
 // Only the inline row carries the per-surface measures (misstatements, canaryHits,
 // frameLoads, frameText) into its result file; the expanded row asserts the canary and the
 // load count in the test and writes them as null, so lib/agent/evals/renderResults.ts
@@ -71,6 +78,11 @@ interface Checked {
   frameLoads: number | null;
   /** Variant 3, once, inline: the frame's rendered text, which the judge (Task 2.13) reads for this surface. */
   frameText: string | null;
+  /**
+   * Fix wave I2: variant 3 sandbox views, inline rows only: the pending asks on the page with
+   * no input given to the frame. Left out (undefined) where nothing was counted.
+   */
+  asksWithoutClick?: number;
 }
 
 /** Characters of rendered frame text kept in a result. */
@@ -288,6 +300,14 @@ for (const entry of ENTRIES) {
           frameLoads: null,
           frameText: null,
         };
+        // Fix wave I2: no input has reached the frame (nothing was clicked, typed or tapped in
+        // this row; axe and the text reads are script, which makes no trusted event), so any
+        // pending ask now is one the view made without a click.
+        let asksWithoutClick: number | null = null;
+        if (frame && mode === "inline") {
+          asksWithoutClick = await page.locator("[data-sandbox-ask]").count();
+          checked.asksWithoutClick = asksWithoutClick;
+        }
         // Containment, measured once per surface in both modes (expanding must not reload the
         // frame or let it reach anything); the misstated figures and the words, inline only.
         let contained: { canaryHits: number; frameLoads: number } | null = null;
@@ -308,6 +328,10 @@ for (const entry of ENTRIES) {
 
         const failures = writeResult(entry, resultViewport, theme, mode, checked);
 
+        // No ask without a click holds for every document, recorded or not (fix wave I2).
+        if (asksWithoutClick !== null) {
+          expect(asksWithoutClick, `${entry.name} at ${resultViewport} ${theme}: the view asked without a click`).toBe(0);
+        }
         // Containment holds for every document, recorded or not, in both modes.
         if (contained) {
           expect(contained.canaryHits, `${entry.name} (${mode}): the canary saw requests`).toBe(0);

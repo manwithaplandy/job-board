@@ -34,9 +34,10 @@ const ResultSchema = z.object({
   canaryHits: z.number().nullable(),
   frameLoads: z.number().nullable(),
   /**
-   * Asks the frame made without a real click (PR 6, inline-UI spec S15.2). Optional: the
-   * render smoke does not count them yet, and a result without it leaves an ask case
-   * awaiting its replay.
+   * Asks the frame made without a real click (PR 6, inline-UI spec S15.2): the pending asks
+   * the render smoke counted on an inline variant 3 row once the frame settled, with no input
+   * (fix wave I2). Optional: a result written before the count, or a row that counted nothing
+   * (not variant 3, expanded), has none, and an ask case without it awaits its replay.
    */
   asksWithoutClick: z.number().optional(),
   frameText: z.string().nullable().optional(),

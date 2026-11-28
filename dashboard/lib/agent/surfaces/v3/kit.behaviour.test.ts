@@ -705,3 +705,46 @@ describe("jb-toggle", () => {
     expect(cssFor(".jb-toggle__switch")).toMatch(/min-height: var\(--target-size\);/);
   });
 });
+
+describe("jb-segmented", () => {
+  test("a labelled radiogroup: value, change with a string, arrow keys move and select, roving tabindex, 44px", async () => {
+    document.body.innerHTML = `<jb-segmented name="range" label="Range" value="month"><option value="week">Week</option><option value="month">Month</option><option value="year">Year</option></jb-segmented>`;
+    const seg = document.querySelector("jb-segmented")!;
+    expect(value(seg)).toBe("month");
+    await tick();
+    const group = seg.querySelector('[role="radiogroup"]')!;
+    expect(group).not.toBeNull();
+    expect(labelText(group)).toBe("Range");
+    expect(seg.querySelector(".jb-control__label")?.textContent).toBe("Range");
+    const radios = [...group.querySelectorAll('[role="radio"]')] as HTMLElement[];
+    expect(radios.map((r) => r.textContent)).toEqual(["Week", "Month", "Year"]);
+    expect(radios.map((r) => r.getAttribute("aria-checked"))).toEqual(["false", "true", "false"]);
+    expect(radios.map((r) => r.getAttribute("tabindex"))).toEqual(["-1", "0", "-1"]);
+    expect(seg.querySelectorAll("option")).toHaveLength(0);
+
+    radios[1].focus();
+    const seen = changes(() => {
+      press(radios[1], "ArrowRight");
+      press(radios[2], "ArrowRight"); // wraps to the first
+      press(radios[0], "ArrowLeft"); // wraps to the last
+    });
+    expect(seen.map((c) => c.detail)).toEqual([
+      { name: "range", value: "year" },
+      { name: "range", value: "week" },
+      { name: "range", value: "year" },
+    ]);
+    expect(seen.every((c) => c.bubbles && c.custom)).toBe(true);
+    expect(document.activeElement).toBe(radios[2]);
+    expect(radios.map((r) => r.getAttribute("tabindex"))).toEqual(["-1", "-1", "0"]);
+    expect(value(seg)).toBe("year");
+
+    expect(changes(() => radios[0].click()).map((c) => c.detail)).toEqual([{ name: "range", value: "week" }]);
+    // Pressing the one already selected changes nothing.
+    expect(changes(() => press(radios[0], " "))).toEqual([]);
+
+    expect(changes(() => Reflect.set(seg, "value", "month"))).toEqual([]);
+    expect(radios.map((r) => r.getAttribute("aria-checked"))).toEqual(["false", "true", "false"]);
+
+    expect(cssFor(".jb-segmented__option")).toMatch(/min-height: var\(--target-size\);/);
+  });
+});

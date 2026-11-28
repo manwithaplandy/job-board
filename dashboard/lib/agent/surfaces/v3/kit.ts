@@ -265,7 +265,23 @@ jb-select > option, jb-segmented > option { display: none; }
 .jb-toggle__switch[aria-checked="true"] .jb-toggle__track { background: var(--accent-solid); }
 .jb-toggle__switch[aria-checked="true"] .jb-toggle__thumb { transform: translateX(16px); }
 .jb-toggle__label { display: inline; margin: 0; font-size: var(--font-size-control); color: var(--text-primary); }
-.jb-select__button:focus-visible, .jb-slider__input:focus-visible, .jb-toggle__switch:focus-visible {
+.jb-segmented__group { display: inline-flex; flex-wrap: wrap; gap: var(--space-1); padding: var(--space-1); border: 1px solid var(--border-strong); border-radius: var(--radius-control); background: var(--bg-muted); }
+.jb-segmented__option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--target-size);
+  min-width: var(--target-size);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-control);
+  color: var(--text-secondary);
+  font-size: var(--font-size-control);
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+.jb-segmented__option[aria-checked="true"] { background: var(--bg-surface); color: var(--text-primary); box-shadow: var(--elevation-card); }
+.jb-select__button:focus-visible, .jb-slider__input:focus-visible, .jb-toggle__switch:focus-visible, .jb-segmented__option:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
   box-shadow: 0 0 0 4px var(--focus-halo);
@@ -1135,6 +1151,90 @@ export const KIT_JS: string = `(function () {
     set value(v) { setToggle(this, v); }
     get checked() { return toggleValue(this); }
     set checked(v) { setToggle(this, v); }
+  });
+
+  /* The index an arrow, Home or End key moves to from i in a row of n items (wrapping), or
+     -1 for any other key. */
+  function rovingTarget(k, i, n) {
+    if (k === "ArrowRight" || k === "ArrowDown") return (i + 1) % n;
+    if (k === "ArrowLeft" || k === "ArrowUp") return (i - 1 + n) % n;
+    if (k === "Home") return 0;
+    if (k === "End") return n - 1;
+    return -1;
+  }
+
+  /* <jb-segmented name label value> with <option value> children: a radiogroup of
+     buttons in a row, one tab stop (roving tabindex); the arrow keys move and select. */
+  function buildSegmented(host, st) {
+    if (st.built) return;
+    st.built = true;
+    st.options = takeOptions(host);
+    st.index = indexOfValue(st.options, getAttr(host, "value"));
+    if (st.index < 0 && st.options.length > 0) st.index = 0;
+    var labelId = nextId("label");
+    var label = node("span", "jb-control__label", labelOf(host));
+    setAttr(label, "id", labelId);
+    var group = node("div", "jb-segmented__group");
+    setAttr(group, "role", "radiogroup");
+    setAttr(group, "aria-labelledby", labelId);
+    var radios = [];
+    function show(i) {
+      st.index = i;
+      for (var j = 0; j < radios.length; j++) {
+        setAttr(radios[j], "aria-checked", j === i ? "true" : "false");
+        setAttr(radios[j], "tabindex", j === i ? "0" : "-1");
+      }
+    }
+    function pick(i, focus) {
+      var changed = i !== st.index;
+      show(i);
+      if (focus) focusOn(radios[i]);
+      if (changed) emitChange(host, st.options[i].value);
+    }
+    function wire(i) {
+      listen(radios[i], "click", function () { pick(i, true); });
+      listen(radios[i], "keydown", function (e) {
+        var k = keyName(e);
+        if (k === " " || k === "Enter") { cancelEvent(e); pick(i, false); return; }
+        var to = rovingTarget(k, i, radios.length);
+        if (to < 0) return;
+        cancelEvent(e);
+        pick(to, true);
+      });
+    }
+    for (var i = 0; i < st.options.length; i++) {
+      var radio = node("span", "jb-segmented__option", st.options[i].label);
+      setAttr(radio, "role", "radio");
+      radios[i] = radio;
+      appendTo(group, radio);
+      wire(i);
+    }
+    st.show = show;
+    if (st.index >= 0) show(st.index);
+    appendTo(host, label);
+    appendTo(host, group);
+  }
+  defineOnce("jb-segmented", class extends HTMLElement {
+    connectedCallback() {
+      if (this.jbSegmented) return;
+      var self = this;
+      var st = { built: false, options: [], index: -1, show: null };
+      this.jbSegmented = st;
+      whenParsed(function () { buildSegmented(self, st); });
+    }
+    get value() {
+      var st = this.jbSegmented;
+      if (st && st.built) return st.index >= 0 ? st.options[st.index].value : "";
+      return unbuiltValue(this);
+    }
+    set value(v) {
+      var st = this.jbSegmented;
+      v = String(v);
+      if (st && st.built) {
+        var i = indexOfValue(st.options, v);
+        if (i >= 0 && st.show) st.show(i);
+      } else setAttr(this, "value", v);
+    }
   });
 
   function measure() {

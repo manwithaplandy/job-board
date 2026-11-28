@@ -53,7 +53,7 @@ import { flushLangfuseTraces } from "@/lib/observability";
 import { loadAppSettings } from "@/lib/appSettings";
 import { AGENT_LIMITS, AGENT_MODEL_DEFAULT, type Variant } from "@/lib/agent/config";
 import { presentVariant } from "@/lib/agent/variants";
-import { AGENT_DOCUMENTS_MAX, AGENT_TEXT_MAX } from "@/lib/agent/request";
+import { AGENT_DOCUMENTS_MAX, AGENT_TEXT_MAX, isViewMessageId } from "@/lib/agent/request";
 import { stepCostMicros } from "@/lib/agent/budget";
 import { buildInstructions } from "@/lib/agent/context";
 import { emptyGathered } from "@/lib/agent/gathered";
@@ -240,6 +240,40 @@ export function patchApproval(
 }
 
 /**
+ * PR 6 (spec 08 S10.4): the fixed words the model sees before a message sent from a view.
+ * Added only when the history is built for the model, never stored.
+ */
+export const VIEW_MESSAGE_MARKER = "(Sent from a button in a generated view.) ";
+
+/**
+ * Copies of the messages in which the first text part of every user message with a view id
+ * starts with VIEW_MESSAGE_MARKER (spec 08 S10.4); every other message is returned as it is.
+ * Nothing stored changes: the loop applies this to what it sends the model.
+ */
+export function markViewMessages<M extends UIMessage>(messages: M[]): M[] {
+  return messages.map((m) => {
+    if (m.role !== "user" || !isViewMessageId(m.id)) return m;
+    const at = m.parts.findIndex((p) => p.type === "text");
+    if (at < 0) return m;
+    const parts = m.parts.map((p, i) => (i === at && p.type === "text" ? { ...p, text: VIEW_MESSAGE_MARKER + p.text } : p));
+    return { ...m, parts };
+  });
+}
+
+/**
+ * Whether the turn answers a message sent from a view (spec 08 S10.4, plan D6): the user
+ * message a new message or a Retry answers, or, for an approval continuation, the last user
+ * message before the waiting assistant message (so approving a card in a view-started turn
+ * does not hand the continuation the write tools).
+ */
+export function turnFromView(start: { kind: "message"; id: string } | { kind: "retry"; id: string } | { kind: "approval"; history: AgentUIMessage[] }): boolean {
+  if (start.kind !== "approval") return isViewMessageId(start.id);
+  const before = start.history.slice(0, -1);
+  const asked = [...before].reverse().find((m) => m.role === "user");
+  return asked !== undefined && isViewMessageId(asked.id);
+}
+
+/**
  * The history the model sees (AGENT_LIMITS.historyMaxMessages and historyMaxChars): the
  * newest messages that fit both caps, then cut to start at a user message, so the
  * window never opens on a reply to a question it no longer holds.
@@ -283,9 +317,9 @@ async function closeRun(userId: string, runId: string, final: Parameters<typeof 
 }
 
 /** The profile for the instructions; null when the read failed (getProfileSummary itself never returns null). */
-async function loadProfile(base: Omit<ToolCtx, "gathered" | "repairsLeft" | "views">): Promise<ProfileSummary | null> {
+async function loadProfile(base: Omit<ToolCtx, "gathered" | "repairsLeft" | "views" | "fromView">): Promise<ProfileSummary | null> {
   try {
-    return await getProfileSummary({ ...base, gathered: emptyGathered(), repairsLeft: { n: 0 }, views: { used: 0 } });
+    return await getProfileSummary({ ...base, gathered: emptyGathered(), repairsLeft: { n: 0 }, views: { used: 0 }, fromView: false });
   } catch (e) {
     // A profile is context, not a requirement: the turn goes on, and the instructions
     // say the profile could not be read (not that there is none).
@@ -443,7 +477,15 @@ async function runTurn(a: TurnArgs, variant: Variant): Promise<Response> {
   // The turn's tool context: one gathered store, one repair state and one view counter
   // per turn (spec 08 S4.4). Built before the setup so the end of the turn can settle a
   // pending variant 2 or 3 repair.
-  const ctx: ToolCtx = { ...base, gathered: emptyGathered(), repairsLeft: { n: 1 }, views: { used: 0 }, modelId };
+  // PR 6: a turn that answers a message sent from a view is built without the write tools.
+  const fromView = turnFromView(
+    start.kind === "message"
+      ? { kind: "message", id: start.message.id }
+      : start.kind === "retry"
+        ? { kind: "retry", id: start.id }
+        : { kind: "approval", history: fullHistory },
+  );
+  const ctx: ToolCtx = { ...base, gathered: emptyGathered(), repairsLeft: { n: 1 }, views: { used: 0 }, fromView, modelId };
   let instructions: string;
   let tools: ReturnType<typeof buildTools>;
   let modelMessages: Awaited<ReturnType<typeof convertToModelMessages>>;
@@ -498,7 +540,8 @@ async function runTurn(a: TurnArgs, variant: Variant): Promise<Response> {
     // never got its result; replayed as is, the SDK refuses the whole prompt
     // (MissingToolResultsError) and the thread could never answer again. Such calls are
     // dropped; the text around them is kept (PR C batch 3 review I1).
-    modelMessages = await convertToModelMessages(sent, { ignoreIncompleteToolCalls: true });
+    // PR 6: a message sent from a view carries its fixed marker for the model (not stored).
+    modelMessages = await convertToModelMessages(markViewMessages(sent), { ignoreIncompleteToolCalls: true });
   } catch (e) {
     // Nothing reached the model: close the run and the placeholder, then let the route
     // answer 500.

@@ -93,7 +93,14 @@ import { compileMemo } from "@/lib/workspaces/memoCompile";
 import { SUMMARY_MESSAGE_ID } from "@/lib/agent/summary";
 import { TurnInProgressError, chargeStep, finishRun, saveMessages, startRun } from "@/lib/agent/runs";
 import type { AgentThread } from "@/lib/agent/threads";
-import { APPROVAL_DENIED_REASON, streamAgentTurn, TurnInputError, type TurnInput } from "@/lib/agent/loop";
+import {
+  APPROVAL_DENIED_REASON,
+  markViewMessages,
+  streamAgentTurn,
+  TurnInputError,
+  VIEW_MESSAGE_MARKER,
+  type TurnInput,
+} from "@/lib/agent/loop";
 import { getProfileSummary } from "@/lib/agent/tools/read";
 import { AGENT_LIMITS } from "@/lib/agent/config";
 import { startApplicationPrep } from "@/lib/applicationPrep";
@@ -1407,5 +1414,121 @@ describe("streamAgentTurn: prompt caching on the wire (PR J7)", () => {
     await runTurn(next.model, message("and now?", "m-b"));
     const replayed = next.bodies[0].messages.slice(0, 4).map(bare);
     expect(replayed).toEqual(bodies[1].messages.map(bare));
+  });
+});
+
+// PR 6 (inline-UI spec S10.4, plan D6): a turn that answers a message a view sent has no
+// write tool, and the model reads that message with the fixed marker in front of it.
+describe("streamAgentTurn: a turn started from a view", () => {
+  // A test-only key: long enough to count, never a real secret.
+  const TEST_KEY = "t".repeat(40); // low-entropy fixture, at least 32 characters
+  const WRITES = ["set_shortlist_state", "set_application_stage", "add_application_note", "update_document_draft"];
+  const toolNames = (model: MockLanguageModelV4, i = 0) => (model.doStreamCalls[i].tools ?? []).map((t) => t.name);
+  const hasWrites = (model: MockLanguageModelV4, i = 0) => WRITES.some((n) => toolNames(model, i).includes(n));
+  const userMsg = (id: string, text: string): UIMessage => ({ id, role: "user", parts: [{ type: "text", text }], metadata: { status: "complete" } });
+
+  beforeEach(() => {
+    vi.stubEnv("AGENT_TOOL_APPROVAL_SECRET", TEST_KEY);
+    resetApprovalSecretWarning();
+    vi.mocked(startApplicationPrep)
+      .mockReset()
+      .mockResolvedValue({ status: "started", generationId: "g-1", generation: {} as never });
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  test("a u- message turn has the write tools", async () => {
+    const model = scripted([textStep(["ok"], 0.0008)]);
+    await turn(model, message("Show the Berlin jobs", "u-x"));
+    expect(hasWrites(model)).toBe(true);
+    expect(JSON.stringify(model.doStreamCalls[0].prompt)).not.toContain(VIEW_MESSAGE_MARKER.trim());
+  });
+
+  test("a view- message turn has none, and keeps the read, approval and interactive tools", async () => {
+    const model = scripted([textStep(["ok"], 0.0008)]);
+    await turn(model, message("Show the Berlin jobs", "view-x"));
+    expect(hasWrites(model)).toBe(false);
+    expect(toolNames(model)).toEqual(expect.arrayContaining(["get_profile_summary", "start_application_prep", "present", "ask_user"]));
+  });
+
+  test("the model reads the marker before the view's text; the stored message has none", async () => {
+    const model = scripted([textStep(["ok"], 0.0008)]);
+    await turn(model, message("Show the Berlin jobs", "view-x"));
+    const user = model.doStreamCalls[0].prompt.find((m) => m.role === "user");
+    expect(JSON.stringify(user)).toContain(JSON.stringify(VIEW_MESSAGE_MARKER + "Show the Berlin jobs").slice(1, -1));
+    const storedUser = saves().find(([, , [m]]) => m.role === "user")![2][0];
+    expect(storedUser.id).toBe("view-x");
+    expect(textOf(storedUser)).toBe("Show the Berlin jobs");
+  });
+
+  test("a retry of a stored view- message has no write tool, and carries the marker again", async () => {
+    vi.mocked(loadMessages).mockResolvedValue([
+      userMsg("view-x", "Show the Berlin jobs"),
+      { id: "msg-failed", role: "assistant", parts: [], metadata: { status: "failed" } },
+    ]);
+    const model = scripted([textStep(["ok"], 0.0008)]);
+    await turn(model, { kind: "retry", id: "view-x" });
+    expect(hasWrites(model)).toBe(false);
+    expect(JSON.stringify(model.doStreamCalls[0].prompt)).toContain(VIEW_MESSAGE_MARKER.trim());
+  });
+
+  test("a retry of a stored u- message keeps the write tools", async () => {
+    vi.mocked(loadMessages).mockResolvedValue([
+      userMsg("u-x", "Show the Berlin jobs"),
+      { id: "msg-failed", role: "assistant", parts: [], metadata: { status: "failed" } },
+    ]);
+    const model = scripted([textStep(["ok"], 0.0008)]);
+    await turn(model, { kind: "retry", id: "u-x" });
+    expect(hasWrites(model)).toBe(true);
+  });
+
+  const prepCall = (): LanguageModelV4StreamPart[] => [
+    { type: "stream-start", warnings: [] },
+    { type: "tool-call", toolCallId: "c-prep", toolName: "start_application_prep", input: JSON.stringify({ jobId: "greenhouse:acme:101" }) },
+    { type: "finish", finishReason: { unified: "tool-calls", raw: "tool_calls" }, usage, providerMetadata: billed(0.001) },
+  ];
+
+  async function continuation(userId: string): Promise<MockLanguageModelV4> {
+    vi.mocked(loadMessages).mockResolvedValue([]);
+    await turn(scripted([prepCall()]), message("prepare it", userId));
+    const [, , [assistant]] = lastAssistantSave();
+    const part = assistant.parts.find((p) => p.type === "tool-start_application_prep");
+    if (!part || !isToolUIPart(part) || part.state !== "approval-requested") throw new Error("not pending");
+    vi.mocked(loadMessages).mockResolvedValue([userMsg(userId, "prepare it"), { ...assistant, metadata: { status: "complete" } }]);
+    const model = scripted([textStep(["Preparing it now."], 0.0005)]);
+    await turn(model, { kind: "approval", approvalId: part.approval.id, approved: true });
+    expect(startApplicationPrep).toHaveBeenCalledTimes(1);
+    return model;
+  }
+
+  test("an approval continuation whose user message is view- has no write tool", async () => {
+    expect(hasWrites(await continuation("view-u1"))).toBe(false);
+  });
+
+  test("an approval continuation whose user message is u- keeps the write tools", async () => {
+    expect(hasWrites(await continuation("u-u1"))).toBe(true);
+  });
+});
+
+describe("markViewMessages", () => {
+  const user = (id: string, parts: UIMessage["parts"]): UIMessage => ({ id, role: "user", parts });
+
+  test("prefixes the first text part of a view- user message, as a copy", () => {
+    const original = user("view-1", [{ type: "text", text: "Explain this" }, { type: "text", text: "second" }]);
+    const [marked] = markViewMessages([original]);
+    expect(marked.parts).toEqual([
+      { type: "text", text: VIEW_MESSAGE_MARKER + "Explain this" },
+      { type: "text", text: "second" },
+    ]);
+    expect(original.parts[0]).toEqual({ type: "text", text: "Explain this" });
+  });
+
+  test("leaves u- messages and assistant messages untouched, by identity", () => {
+    const plain = user("u-1", [{ type: "text", text: "Explain this" }]);
+    const assistant: UIMessage = { id: "view-2", role: "assistant", parts: [{ type: "text", text: "ok" }] };
+    const out = markViewMessages([plain, assistant]);
+    expect(out[0]).toBe(plain);
+    expect(out[1]).toBe(assistant);
   });
 });

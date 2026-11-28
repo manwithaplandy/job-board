@@ -182,7 +182,7 @@ describe("logAction", () => {
     variant: 1,
     unattended: false,
     gathered: emptyGathered(),
-    repairsLeft: { n: 1 }, views: { used: 0 },
+    repairsLeft: { n: 1 }, views: { used: 0 }, fromView: false,
   };
 
   test("calls agent_log_action with the run, the thread and json text, never a user id", async () => {

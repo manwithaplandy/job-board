@@ -20,6 +20,7 @@ import {
   getSurface,
   listThreadSurfaces,
   markSurfaceFailed,
+  ownsVariant3Surface,
   saveSurface,
   setSurfaceFailure,
   type SaveSurfaceArgs,
@@ -112,6 +113,31 @@ describe("getSurface", () => {
     expect(db.calls).toHaveLength(0);
     db.queue = [[]];
     expect(await getSurface(USER, SURFACE)).toBeNull();
+  });
+});
+
+// PR 6 (plan D8): the ownership rule the frame actions and the agent route share.
+describe("ownsVariant3Surface", () => {
+  const OTHER_THREAD = "33333333-3333-4333-8333-333333333333";
+  test("true only for a variant 3 row of the caller's, in the given thread when one is given", async () => {
+    db.queue = [[row({ variant: "3" })]];
+    expect(await ownsVariant3Surface(USER, SURFACE, THREAD)).toBe(true);
+    expect(db.calls[0].values).toEqual([SURFACE, USER]);
+    db.queue = [[row({ variant: "3" })]];
+    expect(await ownsVariant3Surface(USER, SURFACE, null)).toBe(true);
+    db.queue = [[row({ variant: "3" })]];
+    expect(await ownsVariant3Surface(USER, SURFACE, OTHER_THREAD)).toBe(false);
+    db.queue = [[row({ variant: "1" })]];
+    expect(await ownsVariant3Surface(USER, SURFACE, THREAD)).toBe(false);
+    // Another user's row is not returned by the query (user_id is in its WHERE).
+    db.queue = [[]];
+    expect(await ownsVariant3Surface(USER, SURFACE, THREAD)).toBe(false);
+  });
+
+  test("ids that are not uuids run no query", async () => {
+    expect(await ownsVariant3Surface(USER, "nope", THREAD)).toBe(false);
+    expect(await ownsVariant3Surface(USER, SURFACE, "nope")).toBe(false);
+    expect(db.calls).toHaveLength(0);
   });
 });
 

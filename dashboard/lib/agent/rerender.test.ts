@@ -362,7 +362,7 @@ test("the re-render instructions hold the target variant's grammar and the data 
 describe("the re-render's present", () => {
   const ctx = (): ToolCtx => ({
     userId: USER, email: null, threadId: THREAD, runId: RUN, variant: 1, unattended: false,
-    gathered: gatheredFixture(), repairsLeft: { n: 1 }, views: { used: 0 }, rerenderOf: SOURCE,
+    gathered: gatheredFixture(), repairsLeft: { n: 1 }, views: { used: 0 }, fromView: false, rerenderOf: SOURCE,
   });
 
   test("its description has no per-turn cap: a re-render presents once", async () => {

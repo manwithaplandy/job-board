@@ -12,7 +12,7 @@ import { undoAction, type UndoResult } from "@/lib/agent/actions/audit";
 import { confirmIntent, executeIntent } from "@/lib/agent/actions/handlers";
 import type { ActionIntent, IntentOutcome } from "@/lib/agent/actions/intents";
 import { describeIntent, frameIntent, isDirectOpen, type IntentDescription } from "@/lib/agent/actions/describe";
-import { getSurface, markSurfaceFailed } from "@/lib/agent/surfaces/store";
+import { markSurfaceFailed, ownsVariant3Surface } from "@/lib/agent/surfaces/store";
 import { SurfacePayloadV1Schema, type SurfacePayloadV1 } from "@/lib/agent/surfaces/v1/blocks";
 import { isFrameFailure } from "@/lib/agent/surfaces/v3/bridge";
 import { parseOrNull } from "@/lib/zodParse";
@@ -161,13 +161,6 @@ export async function executeIntentAction(
   return outcome;
 }
 
-/** A variant 3 surface of the caller's in this thread, or null. */
-async function ownVariant3(userId: string, surfaceId: string, threadId: string | null): Promise<boolean> {
-  if (!UUID_RE.test(surfaceId) || (threadId !== null && !UUID_RE.test(threadId))) return false;
-  const surface = await getSurface(userId, surfaceId);
-  return surface !== null && surface.variant === 3 && (threadId === null || surface.threadId === threadId);
-}
-
 /** The chip a frame's action request becomes (D13): the parsed intent and its database-built text. */
 export interface FrameChip extends IntentDescription {
   intent: ActionIntent;
@@ -193,7 +186,7 @@ export async function describeFrameIntentAction(
   if (typeof threadId !== "string" || typeof surfaceId !== "string" || typeof name !== "string") return null;
   const intent = frameIntent(name, args);
   if (intent === null) return null;
-  if (!(await ownVariant3(userId, surfaceId, threadId))) return null;
+  if (!(await ownsVariant3Surface(userId, surfaceId, threadId))) return null;
   const described = await describeIntent(userId, intent);
   return described === null ? null : { ...described, intent, direct: isDirectOpen(intent) };
 }
@@ -208,7 +201,7 @@ export async function reportSurfaceFailure(surfaceId: string, reason: string): P
   const userId = await requireUserId();
   await assertNotDeleted(userId);
   if (typeof surfaceId !== "string" || !isFrameFailure(reason)) return null;
-  if (!(await ownVariant3(userId, surfaceId, null))) return null;
+  if (!(await ownsVariant3Surface(userId, surfaceId, null))) return null;
   const stored = await markSurfaceFailed(userId, surfaceId, reason);
   return stored === null ? null : parseOrNull(SurfacePayloadV1Schema, stored);
 }

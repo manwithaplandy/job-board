@@ -191,7 +191,10 @@ export function presentDescription(variant: Variant): string {
   return (
     `${PRESENT_GRAMMAR[variant]} Text is plain (no links). Pass surfaceId to replace a surface shown earlier in ` +
     "this thread. An invalid payload is shown as a default summary instead. If the result's outcome is invalid, " +
-    "nothing was shown: fix the listed errors and call present once more."
+    "nothing was shown: fix the listed errors and call present once more. " +
+    // Spec 08 S4.4, verbatim: the per-turn cap (runPresent) and its outcome.
+    "You may show up to 3 views in one turn, each where it belongs in your answer. A result with " +
+    "outcome limit means the turn has its 3 views: do not call present again."
   );
 }
 

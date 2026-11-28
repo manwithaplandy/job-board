@@ -533,3 +533,14 @@ describe("present's tool output", () => {
     expect(c.views.used).toBe(1);
   });
 });
+
+// PR 4 (spec 08 S4.4): the tool description tells the model about the cap and the limit outcome.
+test.each([1, 2, 3] as const)("variant %i: present's description allows up to 3 views and explains outcome limit", (variant) => {
+  const description = presentTool(ctx({ variant })).description ?? "";
+  expect(description).toContain(
+    "You may show up to 3 views in one turn, each where it belongs in your answer. A result with " +
+    "outcome limit means the turn has its 3 views: do not call present again.",
+  );
+  expect(description).toContain("You may show up to 3 views in one turn");
+  expect(description).toContain("outcome limit");
+});

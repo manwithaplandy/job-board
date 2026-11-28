@@ -26,7 +26,8 @@ export interface InstructionsInput {
 
 /**
  * The scenario guidance (plan Task 1.21), fixed text. The `present` rule is for an
- * interactive run only: an unattended run has no present tool.
+ * interactive run only: an unattended run has no present tool. It allows up to
+ * AGENT_LIMITS.maxViewsPerTurn views, each placed in the answer (spec 08 S4.4, verbatim).
  */
 export function scenarioRules(a: { unattended: boolean }): string[] {
   const rules = [
@@ -47,10 +48,12 @@ export function scenarioRules(a: { unattended: boolean }): string[] {
   ];
   if (!a.unattended) {
     rules.push(
-      "Finish every turn in which you gathered structured data (jobs, reviews, your shortlist, " +
-        "applications, documents, metrics) with exactly one present call that shows it; if you also " +
-        "need to ask the user something, call present before or together with ask_user, because the " +
-        "turn ends at ask_user.",
+      "When a turn gathers structured data (jobs, reviews, your shortlist, applications, documents, " +
+        "metrics), show it with present. Write your answer as text and place each view where it " +
+        "belongs in that answer: say what the view is for, call present, then go on. Use at most 3 " +
+        "views in a turn, and only when each shows something different; one good view beats three " +
+        "thin ones. If you also need to ask the user something, call present before or together with " +
+        "ask_user, because the turn ends at ask_user.",
     );
   }
   return rules;
@@ -139,8 +142,10 @@ export function fixedRules(a: { frozen: boolean; variant: Variant; unattended: b
       : "If the user asks how fresh the jobs are, answer only from tool results.",
     // 6. Denied tools.
     "If the user denies a tool call, do not retry it; ask what they would like instead.",
-    // 7. Plain text.
-    "Answer in plain text only: no Markdown, no HTML, no links you wrote yourself.",
+    // 7. Prose with simple Markdown (spec 08 S4.4, verbatim): what AgentMarkdown draws. It
+    // shows a link as text with no href and an image as its alt text only.
+    "Write answers as plain prose with simple Markdown (short paragraphs, lists, bold, small " +
+      "tables). No HTML, no links and no images: they are not shown.",
     // 8. Scenario guidance.
     ...scenarioRules({ unattended: a.unattended }),
     // 9. Run kind and layout: fixed per thread, so they stay inside the stable prefix.

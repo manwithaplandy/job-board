@@ -12,6 +12,9 @@
 //       no later stage starts. Every run.json of the pass carries the pass id and the
 //       pass's --max-usd, and the end prints the pass's reported spend against it ("at
 //       least" when a stage stopped on a call whose cost or usage it could not read).
+//       PR 7: a pass whose uncached estimate is over its budget, or whose stages would not
+//       each fit what is left, is refused before any call (exit 3); since variant 3 calls
+//       may emit 8,000 tokens it is ($3.49 at $3), so run the modes on their own instead.
 //   npm run eval:agent -- --variant <1|2|3> [--model <id>] [--allow-non-haiku] [--seed <n>] [golden caps] [--dry-run]
 //       The golden scenarios (lib/agent/evals/live.eval.ts: 4 scenarios by 3 personas).
 //       Haiku 5.5 by default; --model must name a priced model (exit 2 otherwise, dry run
@@ -93,10 +96,10 @@
 //   --max-cells <n>         cells per model (the first n of its plan) default 180, ceiling 180
 //   --max-steps <n>         model calls in one turn or re-render      default 8,   ceiling 8
 //   --max-tokens <n>        tokens per model                          default 22,000,000, ceiling 44,000,000
-//   --max-usd <n>           reported dollars per model                default 2.5, ceiling 3
+//   --max-usd <n>           reported dollars per model                default 3, ceiling 3
 //   --max-minutes <n>       wall clock per model                      default 360, ceiling 600
 //   --max-total-tokens <n>  tokens over every model                   default 44,000,000, ceiling 88,000,000
-//   --max-total-usd <n>     reported dollars over every model         default 2.5, ceiling 3
+//   --max-total-usd <n>     reported dollars over every model         default 3, ceiling 3
 // Spot check (--matrix --spot-check; one model):
 //   --max-cells <n>         cells (the first n of its 12)             default 12,  ceiling 12
 //   --max-steps <n>         model calls in one turn or re-render      default 8,   ceiling 8
@@ -374,6 +377,17 @@ if (args.dryRun) {
     }
   }
   process.exit(0);
+}
+
+// PR 7: a pass whose uncached estimate is over its budget, or one a stage would not fit, is
+// refused here, before the key check and before any vitest stage or model call: it would
+// otherwise spend on its first stages and stop at a cap part way (matrixPlan.ts passRefusal).
+if (args.mode === "pass") {
+  const refusal = plan.passRefusal({ budgetUsd: args.passUsd });
+  if (refusal !== null) {
+    console.error(`eval:agent: ${refusal}`);
+    process.exit(3);
+  }
 }
 
 if (!process.env.OPENROUTER_API_KEY?.trim()) {

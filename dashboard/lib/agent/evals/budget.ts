@@ -99,8 +99,10 @@ function mapCaps(f: (s: CapSpec) => number, specs: Record<CapKey, CapSpec> = CAP
 // estimate:
 // - matrix, per model: one full run is 180 cells (60 live variant 1 scenario runs plus
 //   their 120 re-render cells, 420 re-render calls). On Haiku 5.5, the default model,
-//   about 14.3M tokens and $2.05 uncached; $2.50 by default, $3 at most, per model and
-//   for the whole command. A full Sonnet 5.5 matrix (about $41) no longer fits any cap:
+//   about 15.1M tokens and $2.47 uncached since PR 7 (a variant 3 re-render call may emit
+//   8,000 tokens, matrixPlan.ts RERENDER_CALL_TOKENS; it was $2.05 at 4,000); $3 by default
+//   and at most, per model and for the whole command (plan D11: $2.50 no longer held 1.2x
+//   the estimate, and the ceiling does not rise). A full Sonnet 5.5 matrix (about $41) no longer fits any cap:
 //   Sonnet runs as the spot check below, or with --allow-non-haiku and a run the cap
 //   stops. Tokens and minutes keep their earlier sizes (a token is a token on either
 //   model; Haiku is not slower).
@@ -213,7 +215,7 @@ export const PROFILE_CAP_SPECS: Record<CapProfile, Record<CapKey, CapSpec>> = {
     maxCases: spec(CAP_SPECS.maxCases, { flag: "--max-cells", label: "matrix cells per model", default: MATRIX_CELLS, ceiling: MATRIX_CELLS }),
     maxSteps: CAP_SPECS.maxSteps,
     maxTokens: spec(CAP_SPECS.maxTokens, { label: "tokens per model (input + output)", default: 22_000_000, ceiling: 44_000_000 }),
-    maxUsd: spec(CAP_SPECS.maxUsd, { label: "US dollars per model (reported cost)", default: 2.5, ceiling: 3 }),
+    maxUsd: spec(CAP_SPECS.maxUsd, { label: "US dollars per model (reported cost)", default: 3, ceiling: 3 }),
     maxMinutes: spec(CAP_SPECS.maxMinutes, { label: "minutes per model", default: 360, ceiling: 600 }),
   },
   injection: {
@@ -245,7 +247,7 @@ const TOTAL_BASE = { integer: true, env: "", flag: "", label: "", name: "max_tok
 export const TOTAL_CAP_SPECS: Partial<Record<CapProfile, Record<TotalCapKey, CapSpec>>> = {
   matrix: {
     maxTotalTokens: { ...TOTAL_BASE, name: "max_tokens", flag: "--max-total-tokens", env: "EVAL_MAX_TOTAL_TOKENS", label: "tokens over every model", default: 44_000_000, ceiling: 88_000_000 },
-    maxTotalUsd: { ...TOTAL_BASE, name: "max_usd", integer: false, flag: "--max-total-usd", env: "EVAL_MAX_TOTAL_USD", label: "US dollars over every model", default: 2.5, ceiling: 3 },
+    maxTotalUsd: { ...TOTAL_BASE, name: "max_usd", integer: false, flag: "--max-total-usd", env: "EVAL_MAX_TOTAL_USD", label: "US dollars over every model", default: 3, ceiling: 3 },
   },
   injection: {
     maxTotalTokens: { ...TOTAL_BASE, name: "max_tokens", flag: "--max-total-tokens", env: "EVAL_MAX_TOTAL_TOKENS", label: "tokens over every model", default: 18_000_000, ceiling: 36_000_000 },

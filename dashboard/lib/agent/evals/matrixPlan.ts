@@ -19,8 +19,8 @@
 //   - a re-render: two calls per surface (present's one repair, the worst case), 12,000
 //     tokens in each (instructions, grammar and present's schema, about 4k, plus the
 //     surface's gathered data, typically 8k and capped at 120,000 characters), and out
-//     2,000 tokens for a variant 2 tree or 4,000 (AGENT_LIMITS.maxOutputTokens, the
-//     worst case) for a variant 3 document;
+//     2,000 tokens for a variant 2 tree or 8,000 (outputTokensFor(3), AGENT_LIMITS
+//     .maxOutputTokensV3 since PR 7, the worst case) for a variant 3 document;
 //   - prices: lib/agent/prices.ts, list prices per call (Haiku 5.5 at the tier of one
 //     call's prompt), [Unverified] on OpenRouter. The matrix and the injection set run only
 //     models with their own row (UnpricedModelError otherwise; eval-agent.mjs refuses them
@@ -34,7 +34,7 @@
 //     worstCaseCallMicros, from the prompt's serialized size) fits under the cap. The dry
 //     runs show that reserve at the plan's call sizes (DRY_RUN_PROMPT_BYTES_PER_TOKEN bytes
 //     a token) and count a run within its caps only when its estimate plus that reserve fits.
-import { AGENT_EVAL_DEFAULT_MODEL, AGENT_LIMITS, type Variant } from "../config.ts";
+import { AGENT_EVAL_DEFAULT_MODEL, outputTokensFor, type Variant } from "../config.ts";
 import { HAIKU_SHORT_PROMPT_MAX_TOKENS, PROMPT_TOKEN_OVERHEAD, callCostMicros, isPriced, worstCaseCallMicros } from "../prices.ts";
 import {
   JUDGE_PAIRS_DEFAULT,
@@ -155,7 +155,8 @@ export const V1_CALL_TOKENS = { input: 15_000, output: 600 };
 export const RERENDER_CALLS_PER_SURFACE = 2;
 export const RERENDER_CALL_TOKENS: Record<2 | 3, { input: number; output: number }> = {
   2: { input: 12_000, output: 2_000 },
-  3: { input: 12_000, output: 4_000 },
+  // PR 7 (spec 08 S9.6): a variant 3 step may emit 8,000 tokens.
+  3: { input: 12_000, output: outputTokensFor(3) },
 };
 /** An injection run: about one of the shorter scenarios (two turns, about eight calls). */
 export const INJECTION_CALLS_PER_RUN = 8;
@@ -277,13 +278,20 @@ export const JUDGE_OUTPUT_LIMIT = 2_000;
  */
 export const FULL_WINDOW_PROMPT_BYTES = 160_000;
 
-export type CallKind = "agent" | "rerender" | "judge";
+/**
+ * agent: a variant 1 or 2 step (the matrix plays only variant 1 live); agent-v3: a variant 3
+ * step, which the injection set plays live (PR 7: its output limit is outputTokensFor(3));
+ * rerender: a re-render, whose dearest target is variant 3; judge: a judge call.
+ */
+export type CallKind = "agent" | "agent-v3" | "rerender" | "judge";
 const MATRIX_KINDS: readonly CallKind[] = ["agent", "rerender"];
+const INJECTION_KINDS: readonly CallKind[] = ["agent", "agent-v3"];
 
 /** The input tokens and output limit of the dearest call of each kind, as the estimate models them. */
 const CALL_SIZES: Record<CallKind, { input: number; maxOutput: number }> = {
-  agent: { input: V1_CALL_TOKENS.input, maxOutput: AGENT_LIMITS.maxOutputTokens },
-  rerender: { input: RERENDER_CALL_TOKENS[3].input, maxOutput: AGENT_LIMITS.maxOutputTokens },
+  agent: { input: V1_CALL_TOKENS.input, maxOutput: outputTokensFor(1) },
+  "agent-v3": { input: V1_CALL_TOKENS.input, maxOutput: outputTokensFor(3) },
+  rerender: { input: RERENDER_CALL_TOKENS[3].input, maxOutput: outputTokensFor(3) },
   judge: { input: JUDGE_CALL_TOKENS.input, maxOutput: JUDGE_OUTPUT_LIMIT },
 };
 
@@ -298,9 +306,15 @@ export function runReserveMicros(model: string, kinds: readonly CallKind[]): num
   return Math.max(0, ...kinds.map((k) => callReserveMicros(model, k)));
 }
 
-/** The reserve of an agent step whose prompt fills the history window (FULL_WINDOW_PROMPT_BYTES). */
-export function fullWindowReserveMicros(model: string): number {
-  return worstCaseCallMicros(model, { inputTokensBound: FULL_WINDOW_PROMPT_BYTES + PROMPT_TOKEN_OVERHEAD, maxOutputTokens: AGENT_LIMITS.maxOutputTokens });
+/** The reserve of an agent step in `variant` whose prompt fills the history window (FULL_WINDOW_PROMPT_BYTES). */
+export function fullWindowReserveMicros(model: string, variant: Variant = 1): number {
+  return worstCaseCallMicros(model, { inputTokensBound: FULL_WINDOW_PROMPT_BYTES + PROMPT_TOKEN_OVERHEAD, maxOutputTokens: outputTokensFor(variant) });
+}
+
+/** The full-window reserve of a run that makes `kinds`: a variant 3 step's when it plays variant 3 live, 0 with no agent step. */
+function fullWindowFor(model: string, kinds: readonly CallKind[]): number {
+  if (kinds.includes("agent-v3")) return fullWindowReserveMicros(model, 3);
+  return kinds.includes("agent") ? fullWindowReserveMicros(model, 1) : 0;
 }
 
 /** The lower of a run's own dollar cap and its whole-command total, when it has one. */
@@ -311,7 +325,7 @@ function bindingUsd(caps: EvalCaps, totals: TotalCaps | null): number {
 /** The dry runs' paragraph on the look-ahead: what it reserves and what that costs against $3. */
 function lookAheadNote(models: readonly string[], kinds: readonly CallKind[], capUsd: number): string[] {
   const reserve = Math.max(0, ...models.map((m) => runReserveMicros(m, kinds)));
-  const full = Math.max(0, ...(kinds.includes("agent") ? models.map((m) => fullWindowReserveMicros(m)) : [0]));
+  const full = Math.max(0, ...models.map((m) => fullWindowFor(m, kinds)));
   const pct = (micros: number) => `${((micros / (PASS_USD_CEILING * 1_000_000)) * 100).toFixed(1)}%`;
   return [
     "Look-ahead (lib/agent/evals/budget.ts): a call starts only if the spend so far plus its worst case fits under the cap",
@@ -585,7 +599,7 @@ export function formatSimpleDryRun(a: {
     "|---|---|---|---|---|---|---|---|",
   ];
   let all = ZERO;
-  const kinds: readonly CallKind[] = [a.profile === "injection" ? "agent" : "judge"];
+  const kinds: readonly CallKind[] = a.profile === "injection" ? INJECTION_KINDS : ["judge"];
   for (const model of a.models) {
     const e = a.profile === "injection" ? estimateInjection(model, a.runs) : estimateJudge(model, a.runs);
     all = add(all, e);
@@ -617,18 +631,20 @@ export function formatGoldenDryRun(a: { variant: Variant; model: string; seed: n
   assertPricedModels([a.model]);
   const cases = goldenCases(a.caps.maxCases);
   const e = estimateGolden(a.model, a.caps.maxCases);
+  // PR 7: a variant 3 golden run plays variant 3 live, whose steps may emit outputTokensFor(3).
+  const kinds: readonly CallKind[] = a.variant === 3 ? ["agent-v3"] : ["agent"];
   return [
     `Golden dry run (variant ${a.variant}, seed ${a.seed}): nothing is run and nothing is spent. ${cases.length} scenario x persona case(s) on ${a.model}.`,
     "",
     "| Model | Cases | Calls | Input tokens | Output tokens | Est. cost uncached | Est. cost cached | Within caps |",
     "|---|---|---|---|---|---|---|---|",
     `| ${a.model} | ${cases.length} | ${e.calls} | ${millions(e.inputTokens)} | ${millions(e.outputTokens)} | ${dollars(e.costMicros)} | ` +
-      `${dollars(e.cachedCostMicros)} | ${within(e, a.caps.maxTokens, a.caps.maxUsd, runReserveMicros(a.model, ["agent"])) ? "yes" : "NO: the run would stop at a cap"} |`,
+      `${dollars(e.cachedCostMicros)} | ${within(e, a.caps.maxTokens, a.caps.maxUsd, runReserveMicros(a.model, kinds)) ? "yes" : "NO: the run would stop at a cap"} |`,
     "",
     "Each case is priced as a matrix variant 1 cell (lib/agent/evals/matrixPlan.ts V1_CALLS, V1_CALL_TOKENS), at list prices",
     "(OpenRouter's prices for these slugs are unverified); variants 2 and 3 are priced the same. A call that reports no cost",
     "stops the run (cost_unknown), so --max-usd always holds. The caps below are what stops a real run.",
-    ...lookAheadNote([a.model], ["agent"], a.caps.maxUsd),
+    ...lookAheadNote([a.model], kinds, a.caps.maxUsd),
     ...CACHE_NOTE,
     "",
     ...capLines("golden", a.caps, null),
@@ -661,7 +677,7 @@ export interface StageFit {
   fits: boolean;
 }
 
-const STAGE_KINDS: Record<PassStageEstimate["stage"], readonly CallKind[]> = { matrix: MATRIX_KINDS, injection: ["agent"], judge: ["judge"] };
+const STAGE_KINDS: Record<PassStageEstimate["stage"], readonly CallKind[]> = { matrix: MATRIX_KINDS, injection: INJECTION_KINDS, judge: ["judge"] };
 
 /**
  * Whether each stage of a pass completes (PR J7 fix round 1): its cap is what the earlier
@@ -684,6 +700,32 @@ export function passStageFits(
     spentMicros += estimateMicros;
     return { capUsd, estimateMicros, reserveMicros, fits: estimateMicros + reserveMicros <= capUsd * 1_000_000 };
   });
+}
+
+/**
+ * PR 7: why a real `--pass` is refused before any call, or null when it may start. It is
+ * refused when its uncached estimate (the conservative figure the caps are sized against)
+ * is over the budget, or when a stage, with its look-ahead reserve, would not fit what the
+ * earlier stages leave: such a pass would stop part way, having spent on stages whose
+ * results it cannot finish. eval-agent.mjs checks this before the key and before vitest.
+ * The ceiling never rises to make a pass fit; the work splits into single modes instead.
+ */
+export function passRefusal(a: { budgetUsd: number; model?: string; judgePairs?: number; stages?: readonly PassStageEstimate[] }): string | null {
+  const stages = a.stages ?? estimatePass(a.model, a.judgePairs);
+  const totalMicros = stages.reduce((sum, s) => sum + s.cost.costMicros, 0);
+  const fits = passStageFits(stages, a.budgetUsd, (c) => c.costMicros);
+  if (totalMicros <= a.budgetUsd * 1_000_000 && fits.every((f) => f.fits)) return null;
+  const parts = stages.map((s) => `${s.stage} ${dollars(s.cost.costMicros)}`).join(", ");
+  const budget = `$${a.budgetUsd.toFixed(2)}`;
+  const short = stages.filter((_, i) => !fits[i]!.fits).map((s) => s.stage).join(" and ");
+  const why =
+    totalMicros > a.budgetUsd * 1_000_000
+      ? `its uncached estimate ${dollars(totalMicros)} is over the ${budget} budget (${parts})`
+      : `its uncached estimate ${dollars(totalMicros)} is within the ${budget} budget (${parts}), but with its look-ahead reserve the ${short} stage would not fit what is left`;
+  return (
+    `--pass is refused before any call: ${why}, so a stage would stop at its cap part way. The $3 ceiling does not rise; run the modes on their own instead: ` +
+    "--matrix, then --injection, then --judge --run <that matrix run id> (each with --dry-run first)."
+  );
 }
 
 /** What `--pass --dry-run` prints: each stage's estimate, the pass's total against its budget, and how the cap holds. */
@@ -725,8 +767,7 @@ export function formatPassDryRun(a: { budgetUsd: number; model?: string; judgePa
     "",
     `Every stage completes within the budget: uncached ${uncached.every((f) => f.fits) ? "yes" : "NO"}, cached ${cached.every((f) => f.fits) ? "yes" : "NO"}.`,
   );
-  const fullWindow = (s: PassStageEstimate) =>
-    Math.max(runReserveMicros(s.model, STAGE_KINDS[s.stage]), STAGE_KINDS[s.stage].includes("agent") ? fullWindowReserveMicros(s.model) : 0);
+  const fullWindow = (s: PassStageEstimate) => Math.max(runReserveMicros(s.model, STAGE_KINDS[s.stage]), fullWindowFor(s.model, STAGE_KINDS[s.stage]));
   const worst = passStageFits(stages, a.budgetUsd, (c) => c.costMicros, fullWindow);
   lines.push(
     `Even if an agent step's prompt filled the history window (about ${FULL_WINDOW_PROMPT_BYTES / 1_000}K bytes: Haiku's long tier, a reserve of ` +
@@ -750,5 +791,7 @@ export function formatPassDryRun(a: { budgetUsd: number; model?: string; judgePa
     "matrix it just ran; judge the variant 3 pairs afterwards with the render smoke and --judge --run <matrix run>.",
     ...CACHE_NOTE,
   );
+  const refusal = passRefusal({ budgetUsd: a.budgetUsd, stages });
+  lines.push("", refusal === null ? "A real --pass at this budget may start." : `A real run: ${refusal}`);
   return lines.join("\n");
 }

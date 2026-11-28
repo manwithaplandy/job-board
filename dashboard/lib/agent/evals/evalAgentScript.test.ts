@@ -36,15 +36,16 @@ describe("eval-agent.mjs", () => {
     expect(r.err).toBe("");
     expect(r.status).toBe(0);
     expect(r.out).toContain("nothing is run and nothing is spent. 180 cells over 1 model(s)");
-    expect(r.out).toContain("| anthropic/claude-haiku-5.5 | 60 / 60 / 60 | 930 | 12.69M | 1.57M | $2.05 | $1.48 | yes |");
+    // PR 7: variant 3 re-renders at 8,000 output tokens.
+    expect(r.out).toContain("| anthropic/claude-haiku-5.5 | 60 / 60 / 60 | 930 | 12.69M | 2.41M | $2.47 | $1.90 | yes |");
   });
 
   test("--dry-run takes --models and lowered caps, and says when a cap would stop the run", () => {
     const r = run("--matrix", "--dry-run", "--models", "anthropic/claude-haiku-5.5", "--max-usd=1");
     expect(r.status).toBe(0);
     expect(r.out).toContain("180 cells over 1 model(s)");
-    expect(r.out).toMatch(/\$2\.05 \| \$1\.48 \| NO: the run would stop at a cap/);
-    expect(r.out).toContain("| --max-usd | US dollars per model (reported cost) | 1 | 2.5 | 3 |");
+    expect(r.out).toMatch(/\$2\.47 \| \$1\.90 \| NO: the run would stop at a cap/);
+    expect(r.out).toContain("| --max-usd | US dollars per model (reported cost) | 1 | 3 | 3 |");
   });
 
   test("PR J7: a matrix or injection run on any model but Haiku 5.5 needs --allow-non-haiku, dry run included (exit 2)", () => {
@@ -59,7 +60,7 @@ describe("eval-agent.mjs", () => {
     expect(allowed.status).toBe(0);
     expect(allowed.out).toContain("360 cells over 2 model(s)");
     // Even allowed, a full Sonnet matrix does not fit the $3 ceiling: the cap would stop it.
-    expect(allowed.out).toMatch(/\| anthropic\/claude-sonnet-5\.5 \| .* \$41\.04 \| \$29\.65 \| NO: the run would stop at a cap \|/);
+    expect(allowed.out).toMatch(/\| anthropic\/claude-sonnet-5\.5 \| .* \$49\.44 \| \$38\.05 \| NO: the run would stop at a cap \|/);
     expect(run("--judge", "--dry-run", "--allow-non-haiku").err).toMatch(/unknown argument --allow-non-haiku for --judge/);
   });
 
@@ -68,8 +69,8 @@ describe("eval-agent.mjs", () => {
     expect(r.err).toBe("");
     expect(r.status).toBe(0);
     expect(r.out).toContain("Spot check dry run (persona senior-backend, one repeat): nothing is run and nothing is spent. 12 cells over 1 model(s).");
-    // Fix round 1: uncached, the look-ahead's reserve ($0.1951 for a Sonnet step) stops it short of $2.90.
-    expect(r.out).toContain("| anthropic/claude-sonnet-5.5 | 4 / 4 / 4 | 62 | 0.85M | 0.10M | $2.74 | $1.98 | NO: the run would stop at a cap |");
+    // PR 7: uncached ($3.30, variant 3 at 8,000 output tokens) it is over its $2.90 cap, which does not rise.
+    expect(r.out).toContain("| anthropic/claude-sonnet-5.5 | 4 / 4 / 4 | 62 | 0.85M | 0.16M | $3.30 | $2.54 | NO: the run would stop at a cap |");
     expect(r.out).toContain("| --max-usd | US dollars (reported cost) | 2.9 | 2.9 | 2.9 |");
     expect(run("--matrix", "--spot-check", "--dry-run", "--persona", "new-grad").out).toContain("(persona new-grad, one repeat)");
     expect(run("--matrix", "--spot-check", "--dry-run", "--persona", "intern").err).toMatch(/--persona must be one of/);
@@ -87,18 +88,20 @@ describe("eval-agent.mjs", () => {
     expect(r.err).toBe("");
     expect(r.status).toBe(0);
     expect(r.out).toContain("Pass dry run: nothing is run and nothing is spent. Matrix, then injection, then judge, one budget of $3.00.");
-    // PR 6: 57 injection runs put the uncached pass over $3 (the guard stops a stage; the ceiling stays 3).
-    expect(r.out).toContain("| pass total | | | 1530 | 21.26M | 1.90M | $3.07 | $2.09 |");
-    expect(r.out).toContain("Pass total against the budget: $3.07 uncached (within $3.00: NO), $2.09 cached (within: yes).");
+    // PR 7: the uncached pass is $3.49, over $3; a real one is refused before any call (the ceiling stays 3).
+    expect(r.out).toContain("| pass total | | | 1530 | 21.26M | 2.74M | $3.49 | $2.51 |");
+    expect(r.out).toContain("Pass total against the budget: $3.49 uncached (within $3.00: NO), $2.51 cached (within: yes).");
+    expect(r.out).toContain("A real run: --pass is refused before any call");
     expect(run("--pass", "--dry-run", "--max-usd", "2").out).toContain("one budget of $2.00");
     expect(run("--pass", "--dry-run", "--max-usd", "3.5").err).toMatch(/ceiling of 3/);
     expect(run("--pass", "--dry-run", "--max-cells", "3").err).toMatch(/unknown argument --max-cells for --pass/);
     expect(run("--pass", "--dry-run", "--model", "anthropic/claude-sonnet-5.5").err).toMatch(/unknown argument --model for --pass/);
     expect(run("--pass", "--matrix", "--dry-run").err).toMatch(/give one of --matrix, --injection, --judge, --pass, once/);
+    // PR 7: a real pass over its budget is refused before the key is even checked (exit 3).
     const noKey = run("--pass");
-    expect(noKey.status).toBe(2);
-    expect(noKey.err).toMatch(/OPENROUTER_API_KEY is not set/);
-    expect(noKey.err).toMatch(/eval:agent -- --pass/);
+    expect(noKey.status).toBe(3);
+    expect(noKey.err).toMatch(/--pass is refused before any call/);
+    expect(noKey.err).not.toMatch(/OPENROUTER_API_KEY/);
   });
 
   test("a matrix cap above its ceiling, an unknown flag or a golden-only flag is a usage error", () => {
@@ -248,7 +251,7 @@ describe("eval-agent.mjs", () => {
       expect(r.out).toContain("Re-render-only dry run over matrix run 20261126T010000Z: nothing is run and nothing is spent. 4 re-render cells over 1 model(s)");
       // 5 recorded surfaces, each into variants 2 and 3, two calls each.
       expect(r.out).toContain(`| ${HAIKU} | 2 / 2 | 10 | 20 |`);
-      expect(r.out).toContain("| --max-usd | US dollars per model (reported cost) | 2.5 | 2.5 | 3 |");
+      expect(r.out).toContain("| --max-usd | US dollars per model (reported cost) | 3 | 3 | 3 |");
 
       expect(dry().err).toMatch(/--rerender-only needs --run <matrix run id>/);
       expect(dry("--run", "20261126T020000Z").err).toMatch(/is a spot-check run; only a full matrix run can be re-rendered/);
@@ -270,6 +273,17 @@ describe("eval-agent.mjs", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  test("PR 7: a real --pass whose uncached estimate is over its budget is refused before the key check and before vitest (exit 3)", () => {
+    const r = run("--pass");
+    expect(r.status).toBe(3);
+    expect(r.err).toMatch(/--pass is refused before any call: its uncached estimate \$3\.\d\d is over the \$3\.00 budget/);
+    expect(r.err).not.toMatch(/OPENROUTER_API_KEY/);
+    expect(r.out).not.toMatch(/eval:agent: pass /);
+    const low = run("--pass", "--max-usd", "2");
+    expect(low.status).toBe(3);
+    expect(low.err).toMatch(/over the \$2\.00 budget/);
   });
 
   test("a real run without OPENROUTER_API_KEY is refused before vitest starts", () => {

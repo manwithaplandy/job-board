@@ -92,6 +92,8 @@ export interface ViewFrameProps {
   onEscape?: () => void;
   /** The title heading, so "Go to it" can focus it. */
   headerRef?: Ref<HTMLHeadingElement>;
+  /** PR 6 (spec 08 S10): where a sandbox view's pending ask goes on Send; none disables Send. */
+  ask?: ViewHost["ask"];
   /**
    * Gallery seam only (the sandbox harness and the replay page, which drive SandboxFrame
    * with their own server stub and log its fallback reasons): drawn in the body in place of
@@ -113,6 +115,7 @@ export function ViewFrame({
   onCollapse,
   onEscape,
   headerRef,
+  ask,
   children,
 }: ViewFrameProps) {
   const { versions, shown, selected, select, busy, message, rerender } = useRerender(chain, onRerendered, threadId);
@@ -120,7 +123,11 @@ export function ViewFrame({
   // chip there once the element exists.
   const [requestsEl, setRequestsEl] = useState<HTMLDivElement | null>(null);
   const escape = onEscape ?? onCollapse;
-  const host = useMemo<ViewHost>(() => ({ requestsEl, expanded, onEscape: expanded ? escape : () => {} }), [requestsEl, expanded, escape]);
+  const askSink = ask ?? null;
+  const host = useMemo<ViewHost>(
+    () => ({ requestsEl, expanded, onEscape: expanded ? escape : () => {}, ask: askSink }),
+    [requestsEl, expanded, escape, askSink],
+  );
   const [rerenderOpen, setRerenderOpen] = useState(false);
   // The fade, and the disclosure closed again on collapse. State adjusted during render.
   const [prevExpanded, setPrevExpanded] = useState(expanded);

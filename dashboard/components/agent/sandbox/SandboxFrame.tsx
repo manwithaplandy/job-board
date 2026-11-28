@@ -19,7 +19,9 @@
 //     page's own beforeunload or pagehide, because a page that unloads fires beforeunload
 //     in its frames too;
 //   - more than 10 action messages in a minute or 30 in all (action_rate_limit,
-//     action_total_limit).
+//     action_total_limit);
+//   - more than 6 ask messages in a minute or 20 in all (ask_rate_limit, ask_total_limit;
+//     PR 6, spec 08 S10.3). Every ask counts, one whose text normalises to nothing included.
 // Every fallback removes the frame first, so nothing in it keeps running.
 //
 // The handshake (stricter than the plan, see kit.ts): the only window message accepted is
@@ -38,6 +40,15 @@
 // ConfirmCard (the parent's handling of the outcome). The one exception is an open of a
 // workspace page with nothing else, which may run without a press once per surface.
 //
+// PR 6 (spec 08 S10.2, layer 2): an ask message never sends anything either. Its text is
+// normalised (normalizeAskText) and shown in full as a pending message in the same request
+// region, in place of whatever request was pending (one per frame, keyed by request number,
+// the same CHIP_ARM_MS arming). Only a press on its Send, drawn here on host chrome where the
+// frame can neither read, cover nor click, hands the text to the page through
+// ViewHostContext's ask.send; Send is disabled, with the reason as its description, when the
+// view host gives a reason or has no ask sink. initialRequest is the gallery fixture's way to
+// show one at mount.
+//
 // The frame owns no chrome of its own (spec 08 S5): the dashed border, the "Generated view"
 // label and the title are ViewFrame's. It renders only the holder, and its chip region goes
 // into the view frame's `rf-view__requests` element through ViewHostContext. With no view
@@ -45,7 +56,7 @@
 //
 // What jsdom cannot show (the sandbox, the CSP, navigation, real message ports between
 // documents) is Task 2.7's real-browser suite.
-import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ActionIntent } from "@/lib/agent/actions/intents";
 import type { GatheredData } from "@/lib/agent/gathered";
@@ -60,9 +71,12 @@ import {
 import { KIT_CSS, KIT_JS } from "@/lib/agent/surfaces/v3/kit";
 import {
   FRAME_ACTION_LIMITS,
+  FRAME_ASK_LIMITS,
   FRAME_LIVENESS,
+  normalizeAskText,
   parseFrameMessage,
   type FrameAction,
+  type FrameAsk,
   type FrameFailure,
 } from "@/lib/agent/surfaces/v3/bridge";
 import { describeFrameIntentAction, reportSurfaceFailure, type FrameChip } from "@/app/actions/agent";
@@ -77,6 +91,15 @@ export const CHIP_PROMPT = "The view wants to:";
 export const CHIP_REGION_LABEL = "Requests from the generated view";
 /** A chip ignores presses for this long after it appears or its request changes (I3). */
 export const CHIP_ARM_MS = 700;
+/** PR 6 (spec 08 S10.2): the caption over a view's pending ask, and its two buttons. */
+export const ASK_CAPTION = "Ask from this view";
+export const ASK_SEND_TEXT = "Send";
+export const ASK_DISMISS_TEXT = "Dismiss";
+/** Send's description when the view host has no ask sink (the frame rendered alone). */
+export const ASK_UNAVAILABLE = "Sending is not available here.";
+
+/** The one pending request of a frame: an action chip, or a view's ask (PR 6). */
+export type PendingRequest = { kind: "action"; chip: FrameChip } | { kind: "ask"; n: number; text: string };
 
 /** A stored variant 3 surface as the host shows it. */
 export interface SandboxSurface {
@@ -110,6 +133,11 @@ export interface SandboxFrameProps {
    * calls go: every check on the frame's messages, the chip arming and the limits stay.
    */
   server?: SandboxFrameServer;
+  /**
+   * Fixture seam (PR 6, the gallery's agent-page-ask-pending): a pending ask shown at mount,
+   * normalised as a frame's would be and armed at once. Product code never passes it.
+   */
+  initialRequest?: { kind: "ask"; text: string };
 }
 
 interface Live {
@@ -125,15 +153,27 @@ interface Live {
   actionTimes: number[];
   actionTotal: number;
   openUsed: boolean;
-  /** Bumped by every action message, so only the newest request's chip is shown. */
+  /** PR 6: the times of the ask messages in the last window, and how many in all. */
+  askTimes: number[];
+  askTotal: number;
+  /** Bumped by every action and ask message, so only the newest request is shown. */
   requestSeq: number;
+}
+
+type RequestEntry = { id: string; seq: number; shownAt: number; request: PendingRequest };
+
+function initialEntry(surfaceId: string, initial: SandboxFrameProps["initialRequest"]): RequestEntry | null {
+  if (!initial || initial.kind !== "ask") return null;
+  const text = normalizeAskText(initial.text);
+  // Armed at once: shown as if it had appeared long ago.
+  return text === null ? null : { id: surfaceId, seq: 0, shownAt: Number.NEGATIVE_INFINITY, request: { kind: "ask", n: 0, text } };
 }
 
 function pageTheme(): "light" | "dark" {
   return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
 }
 
-export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, server }: SandboxFrameProps) {
+export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, server, initialRequest }: SandboxFrameProps) {
   const holderRef = useRef<HTMLDivElement>(null);
   const viewHost = useContext(ViewHostContext);
   // Read by the port handler, which lives as long as the document: the host's onEscape
@@ -145,11 +185,10 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
   const latest = useRef({ surface, onIntent, onFallback, server });
   // Both are kept with the surface id they belong to, so a new surface starts clean.
   const [fallbackState, setFallbackState] = useState<{ id: string; payload: SurfacePayloadV1 } | null>(null);
-  const [chipState, setChipState] = useState<{ id: string; seq: number; shownAt: number; chip: FrameChip } | null>(
-    null,
-  );
+  const [requestState, setRequestState] = useState<RequestEntry | null>(() => initialEntry(surface.id, initialRequest));
   const fallback = fallbackState?.id === surface.id ? fallbackState.payload : null;
-  const chipEntry = chipState?.id === surface.id ? chipState : null;
+  const entry = requestState?.id === surface.id ? requestState : null;
+  const reasonId = useId();
 
   useEffect(() => {
     latest.current = { surface, onIntent, onFallback, server };
@@ -170,6 +209,8 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
       actionTimes: [],
       actionTotal: 0,
       openUsed: false,
+      askTimes: [],
+      askTotal: 0,
       requestSeq: 0,
     };
     const iframe = document.createElement("iframe");
@@ -227,7 +268,7 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
       if (live.failed || live.disposed) return;
       live.failed = true;
       teardown();
-      setChipState(null);
+      setRequestState(null);
       setFallbackState({ id: s.id, payload: s.fallback });
       latest.current.onFallback?.(reason);
       (latest.current.server ?? SERVER_ACTIONS).report(s.id, reason).then(
@@ -254,10 +295,26 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
             latest.current.onIntent(s.id, described.intent, "frame");
             return;
           }
-          setChipState(described === null ? null : { id: s.id, seq, shownAt: Date.now(), chip: described });
+          setRequestState(
+            described === null ? null : { id: s.id, seq, shownAt: Date.now(), request: { kind: "action", chip: described } },
+          );
         },
         () => {},
       );
+    }
+
+    /** PR 6 (spec 08 S10.2, S10.3): an ask becomes the pending request; it never sends anything. */
+    function onAsk(msg: FrameAsk) {
+      const now = Date.now();
+      live.askTotal += 1;
+      live.askTimes = live.askTimes.filter((t) => now - t < FRAME_ASK_LIMITS.windowMs);
+      live.askTimes.push(now);
+      if (live.askTotal > FRAME_ASK_LIMITS.total) return fail("ask_total_limit");
+      if (live.askTimes.length > FRAME_ASK_LIMITS.perMinute) return fail("ask_rate_limit");
+      const text = normalizeAskText(msg.text);
+      if (text === null) return;
+      const seq = ++live.requestSeq;
+      setRequestState({ id: s.id, seq, shownAt: now, request: { kind: "ask", n: seq, text } });
     }
 
     /** One ping over the port; while one waits for its pong, no second deadline is set. */
@@ -293,6 +350,9 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
         fail("frame_error");
       } else if (msg.type === "action") {
         onAction(msg);
+      } else if (msg.type === "ask") {
+        // Only once the kit is running, like escape: an ask before inited is ignored.
+        if (live.inited) onAsk(msg);
       } else if (msg.type === "escape") {
         // A trusted Escape inside the frame (spec 08 S9.2), only once the kit is running: the
         // view host collapses when this is the expanded view and ignores it otherwise.
@@ -378,11 +438,13 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
     );
   }
 
-  const pending = chipEntry?.chip ?? null;
+  const pending = entry?.request ?? null;
+  const askSink = viewHost?.ask ?? null;
+  const askBlocked = askSink === null ? ASK_UNAVAILABLE : askSink.disabledReason;
   const requests = (
     <div className="rf-sandbox__requests" role="region" aria-label={CHIP_REGION_LABEL} aria-live="polite">
-      {pending && chipEntry && (
-        <div className="rf-sandbox__chip" key={chipEntry.seq}>
+      {entry && pending?.kind === "action" && (
+        <div className="rf-sandbox__chip" key={entry.seq}>
           <p className="rf-sandbox__prompt">{CHIP_PROMPT}</p>
           <Button
             variant="secondary"
@@ -390,23 +452,58 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
             data-sandbox-chip=""
             onClick={() => {
               // A press within CHIP_ARM_MS of the chip appearing or changing is ignored.
-              if (Date.now() - chipEntry.shownAt < CHIP_ARM_MS) return;
-              setChipState(null);
-              onIntent(surface.id, pending.intent, "frame");
+              if (Date.now() - entry.shownAt < CHIP_ARM_MS) return;
+              setRequestState(null);
+              onIntent(surface.id, pending.chip.intent, "frame");
             }}
           >
-            {pending.label}
+            {pending.chip.label}
           </Button>
-          {pending.proposed && pending.proposed.length > 0 && (
+          {pending.chip.proposed && pending.chip.proposed.length > 0 && (
             <ul className="rf-sandbox__proposed">
-              {pending.proposed.map((line, i) => (
+              {pending.chip.proposed.map((line, i) => (
                 <li key={i}>{line}</li>
               ))}
             </ul>
           )}
-          <Button variant="ghost" size="sm" onClick={() => setChipState(null)}>
+          <Button variant="ghost" size="sm" onClick={() => setRequestState(null)}>
             Dismiss
           </Button>
+        </div>
+      )}
+      {entry && pending?.kind === "ask" && (
+        <div className="rf-sandbox__chip rf-ask" key={entry.seq} data-sandbox-ask="">
+          <p className="rf-sandbox__prompt">{ASK_CAPTION}</p>
+          <p className="rf-ask__text">{pending.text}</p>
+          <div className="rf-ask__actions">
+            <Button
+              variant="primary"
+              size="sm"
+              data-sandbox-ask-send=""
+              aria-label={`${ASK_SEND_TEXT}: ${pending.text}`}
+              disabled={askBlocked !== null}
+              aria-describedby={askBlocked !== null ? reasonId : undefined}
+              onClick={() => {
+                // A press within CHIP_ARM_MS of the request appearing or changing is ignored,
+                // so a frame cannot swap the text in under a press aimed at the old one.
+                if (Date.now() - entry.shownAt < CHIP_ARM_MS) return;
+                const sink = viewHostRef.current?.ask ?? null;
+                if (sink === null || sink.disabledReason !== null) return;
+                setRequestState(null);
+                sink.send(pending.text, surface.id);
+              }}
+            >
+              {ASK_SEND_TEXT}
+            </Button>
+            <Button variant="ghost" size="sm" aria-label={`${ASK_DISMISS_TEXT}: ${pending.text}`} onClick={() => setRequestState(null)}>
+              {ASK_DISMISS_TEXT}
+            </Button>
+          </div>
+          {askBlocked !== null && (
+            <p id={reasonId} className="rf-ask__reason">
+              {askBlocked}
+            </p>
+          )}
         </div>
       )}
     </div>

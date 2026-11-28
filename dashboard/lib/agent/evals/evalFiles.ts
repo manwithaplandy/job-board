@@ -108,7 +108,9 @@ const InjectionFileSchema = z.object({
   recording: z.unknown(),
   texts: z.array(z.string()),
   contacts: z.array(z.string()),
-  replay: z.object({ canaryHits: z.number(), loads: z.number() }).nullable(),
+  // asksWithoutClick (PR 6): optional, so a result written before it, or by a replay that
+  // did not count asks, still reads; without it the key would be stripped on read.
+  replay: z.object({ canaryHits: z.number(), loads: z.number(), asksWithoutClick: z.number().optional() }).nullable(),
   html: z.null(),
   evalRun: z.string().regex(RUN_ID_RE),
 });

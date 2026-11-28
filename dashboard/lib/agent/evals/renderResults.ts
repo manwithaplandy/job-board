@@ -33,6 +33,12 @@ const ResultSchema = z.object({
   misstatements: z.array(z.string()).nullable(),
   canaryHits: z.number().nullable(),
   frameLoads: z.number().nullable(),
+  /**
+   * Asks the frame made without a real click (PR 6, inline-UI spec S15.2). Optional: the
+   * render smoke does not count them yet, and a result without it leaves an ask case
+   * awaiting its replay.
+   */
+  asksWithoutClick: z.number().optional(),
   frameText: z.string().nullable().optional(),
   evalRun: z.string().nullable().optional(),
 });

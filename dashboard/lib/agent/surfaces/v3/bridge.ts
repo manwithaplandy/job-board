@@ -71,11 +71,15 @@ export const FrameToHostSchema = z.discriminatedUnion("type", [
   // Task 2.7, CI run 2: the kit's word that the document started to leave (beforeunload, or
   // the Navigation API's navigate event to another document).
   z.object({ type: z.literal("navigating") }).strict(),
+  // PR 3 (spec 08 S9.2): a trusted Escape that nothing in the document handled, so a keyboard
+  // user inside an expanded view can leave it. No payload; the host acts on it only for the
+  // expanded view.
+  z.object({ type: z.literal("escape") }).strict(),
 ]);
 export type FrameToHost = z.infer<typeof FrameToHostSchema>;
 export type FrameAction = Extract<FrameToHost, { type: "action" }>;
 
-/** A message from the frame, or null when it is not exactly one of the seven kinds. */
+/** A message from the frame, or null when it is not exactly one of the eight kinds. */
 export function parseFrameMessage(raw: unknown): FrameToHost | null {
   const r = FrameToHostSchema.safeParse(raw);
   return r.success ? r.data : null;

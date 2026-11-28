@@ -45,7 +45,7 @@
 //
 // What jsdom cannot show (the sandbox, the CSP, navigation, real message ports between
 // documents) is Task 2.7's real-browser suite.
-import { useContext, useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ActionIntent } from "@/lib/agent/actions/intents";
 import type { GatheredData } from "@/lib/agent/gathered";
@@ -136,6 +136,12 @@ function pageTheme(): "light" | "dark" {
 export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, server }: SandboxFrameProps) {
   const holderRef = useRef<HTMLDivElement>(null);
   const viewHost = useContext(ViewHostContext);
+  // Read by the port handler, which lives as long as the document: the host's onEscape
+  // changes as its view expands and collapses, which must not remount the frame.
+  const viewHostRef = useRef(viewHost);
+  useLayoutEffect(() => {
+    viewHostRef.current = viewHost;
+  });
   const latest = useRef({ surface, onIntent, onFallback, server });
   // Both are kept with the surface id they belong to, so a new surface starts clean.
   const [fallbackState, setFallbackState] = useState<{ id: string; payload: SurfacePayloadV1 } | null>(null);
@@ -287,6 +293,10 @@ export function SandboxFrame({ surface, onIntent, onFallback, onPrepSettled, ser
         fail("frame_error");
       } else if (msg.type === "action") {
         onAction(msg);
+      } else if (msg.type === "escape") {
+        // A trusted Escape inside the frame (spec 08 S9.2), only once the kit is running: the
+        // view host collapses when this is the expanded view and ignores it otherwise.
+        if (live.inited) viewHostRef.current?.onEscape();
       } else if (msg.type === "navigating") {
         // This page is unloading itself, so its frames were told to unload too: not a failure.
         if (Date.now() - hostLeavingAt < FRAME_LIVENESS.hostLeavingGraceMs) return;

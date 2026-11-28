@@ -746,3 +746,58 @@ describe("SandboxFrame inside a view host", () => {
     expect(container.querySelector(".rf-sandbox__holder")).not.toBeNull();
   });
 });
+
+// PR 3 Task 3.5: the kit's escape reaches the view host only after the handshake, and only
+// through the host's onEscape (ViewFrame passes its collapse when expanded, a no-op otherwise).
+describe("escape from the frame", () => {
+  function mountHosted(onEscape: () => void) {
+    const view = render(
+      <ViewHostContext.Provider value={{ requestsEl: null, expanded: true, onEscape }}>
+        <SandboxFrame surface={surface()} onIntent={vi.fn()} />
+      </ViewHostContext.Provider>,
+    );
+    const iframe = view.container.querySelector("iframe");
+    if (!iframe) throw new Error("no iframe");
+    return { ...view, iframe };
+  }
+
+  test("an escape before the kit acknowledged init is ignored", async () => {
+    const onEscape = vi.fn();
+    const { iframe } = mountHosted(onEscape);
+    const { port } = ready(iframe, { ack: false });
+    port.postMessage({ type: "escape" });
+    await settle();
+    expect(onEscape).not.toHaveBeenCalled();
+  });
+
+  test("after inited, each escape calls the host's onEscape once; a malformed one does nothing", async () => {
+    const onEscape = vi.fn();
+    const { iframe } = mountHosted(onEscape);
+    const { port } = ready(iframe);
+    await settle();
+    port.postMessage({ type: "escape", extra: 1 });
+    await settle();
+    expect(onEscape).not.toHaveBeenCalled();
+    port.postMessage({ type: "escape" });
+    await settle();
+    expect(onEscape).toHaveBeenCalledTimes(1);
+  });
+
+  test("the latest onEscape is called, without remounting the frame", async () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const { iframe, rerender } = mountHosted(first);
+    const { port } = ready(iframe);
+    await settle();
+    rerender(
+      <ViewHostContext.Provider value={{ requestsEl: null, expanded: false, onEscape: second }}>
+        <SandboxFrame surface={surface()} onIntent={vi.fn()} />
+      </ViewHostContext.Provider>,
+    );
+    port.postMessage({ type: "escape" });
+    await settle();
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
+    expect(iframe.isConnected).toBe(true);
+  });
+});

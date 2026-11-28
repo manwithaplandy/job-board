@@ -8,12 +8,14 @@
 //
 // What the frames did is written into <output data-sandbox-log="..."> elements as JSON for
 // tests/sandbox/sandbox.spec.ts to read: the intents the user's presses ran, the
-// fallbacks with their reasons, and the failure reports the stub received.
+// fallbacks with their reasons, the failure reports the stub received, and every load
+// event of every iframe (PR 3: expanding a view must not reload its document, so the
+// expand-no-reload case counts them).
 //
 // Each frame sits in the page's view frame (ViewFrame, spec 08 S5, plan D9), so its chip
 // lands in the frame's requests region as on the agent page. The frame is the view frame's
 // body seam, so the stub server and the logged reasons stay the harness's own.
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { FrameChip } from "@/app/actions/agent";
 import { FIXTURE_GATHERED } from "@/components/agent/blocks/AgentBlocksFixture";
 import { SandboxFrame, type SandboxFrameServer, type SandboxSurface } from "@/components/agent/sandbox/SandboxFrame";
@@ -58,6 +60,21 @@ export function SandboxHarness({ caseName, lane }: { caseName: SandboxCaseName; 
   const [intents, setIntents] = useState<LogEntry[]>([]);
   const [fallbacks, setFallbacks] = useState<LogEntry[]>([]);
   const [reports, setReports] = useState<LogEntry[]>([]);
+  const [loads, setLoads] = useState<LogEntry[]>([]);
+  // load does not bubble, but a capture listener on an ancestor sees each iframe's. A layout
+  // effect, so it is listening before SandboxFrame's passive effect appends the iframe.
+  const stackRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const stack = stackRef.current;
+    if (!stack) return;
+    const onLoad = (e: Event) => {
+      if (!(e.target instanceof HTMLIFrameElement)) return;
+      const surface = e.target.closest<HTMLElement>("[data-sandbox-surface]")?.dataset.sandboxSurface ?? "unknown";
+      setLoads((l) => [...l, { surface, value: "load" }]);
+    };
+    stack.addEventListener("load", onLoad, true);
+    return () => stack.removeEventListener("load", onLoad, true);
+  }, []);
   // The one expanded frame (spec 08 S6), held here as the agent page holds it, without the
   // history entry: the harness tests the restyle in place, not Back.
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -98,7 +115,7 @@ export function SandboxHarness({ caseName, lane }: { caseName: SandboxCaseName; 
         </h1>
         <p>{c.title}</p>
       </div>
-      <div className="rf-gallery__stack">
+      <div ref={stackRef} className="rf-gallery__stack">
         {surfaces.map((s) => (
           <div key={s.id} data-sandbox-surface={s.id}>
             <ViewFrame
@@ -125,6 +142,7 @@ export function SandboxHarness({ caseName, lane }: { caseName: SandboxCaseName; 
       <output data-sandbox-log="intents">{JSON.stringify(intents)}</output>
       <output data-sandbox-log="fallbacks">{JSON.stringify(fallbacks)}</output>
       <output data-sandbox-log="reports">{JSON.stringify(reports)}</output>
+      <output data-sandbox-log="loads">{JSON.stringify(loads)}</output>
     </main>
   );
 }

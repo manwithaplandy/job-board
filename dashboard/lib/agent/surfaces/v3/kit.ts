@@ -1478,7 +1478,12 @@ export const KIT_JS: string = `(function () {
       appendTo(tbody, row);
     }
     appendTo(table, tbody);
-    return table;
+    /* A table box ignores height and overflow, so .jb-sr-only alone lets the hidden table's
+       full height add scrollable overflow below the chart (the frame then scrolls into blank
+       space). The block wrapper is the 1px clipping box; the table keeps the class too. */
+    var wrap = node("div", "jb-sr-only");
+    appendTo(wrap, table);
+    return wrap;
   }
   function chartLegend(items) {
     var ul = node("ul", "jb-chart-legend");

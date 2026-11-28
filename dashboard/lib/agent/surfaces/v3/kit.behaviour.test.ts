@@ -1140,6 +1140,11 @@ describe("host.chart: new kinds", () => {
     expect(svg.querySelectorAll(".jb-chart-mark").length).toBeGreaterThan(0);
     const table = el.querySelector("table.jb-sr-only")!;
     expect(table).not.toBeNull();
+    // A table box ignores height and overflow, so a block wrapper does the visual hiding: the
+    // hidden table cannot add scrollable overflow below the chart.
+    expect(table.parentElement?.tagName).toBe("DIV");
+    expect(table.parentElement?.classList.contains("jb-sr-only")).toBe(true);
+    expect(table.parentElement?.parentElement).toBe(el);
     expect(table.querySelector("caption")?.textContent).toBe(`A ${viz} chart`);
     expect([...table.querySelectorAll("thead th")].every((th) => th.getAttribute("scope") === "col")).toBe(true);
     expect(tableRows(el)).toEqual(rows);
@@ -1791,7 +1796,7 @@ describe("host.chart: drawn at the width it is given", () => {
     expect(el.querySelector("table.jb-sr-only")).toBe(table);
     expect(document.activeElement).toBe(buttons[2]);
     // The order is unchanged: the SVG first, then the legend, the buttons and the table.
-    expect([...el.children].map((c) => c.localName)).toEqual(["svg", "ul", "div", "table"]);
+    expect([...el.children].map((c) => c.localName)).toEqual(["svg", "ul", "div", "div"]);
     buttons[2].click();
     expect(picked).toEqual(["Nov"]);
   });
@@ -1870,7 +1875,7 @@ describe("host.chart: drawn at the width it is given", () => {
     await tick();
     expect(svg().querySelectorAll(".jb-chart-key")).toHaveLength(0);
     expect(el.querySelectorAll(".jb-chart-legend li")).toHaveLength(6);
-    expect([...el.children].map((c) => c.localName)).toEqual(["svg", "ul", "table"]);
+    expect([...el.children].map((c) => c.localName)).toEqual(["svg", "ul", "div"]);
   });
 
   test("a donut wide enough for every key at four characters and its share keeps them in the SVG", () => {

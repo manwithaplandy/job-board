@@ -3,7 +3,7 @@
 // checks the kit's own behaviour only (what it posts, what it renders); the sandbox and
 // the CSP are Task 2.7's real-browser tests.
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
-import { KIT_JS } from "@/lib/agent/surfaces/v3/kit";
+import { KIT_CSS, KIT_JS } from "@/lib/agent/surfaces/v3/kit";
 
 interface KitHost {
   readonly data: unknown;
@@ -456,5 +456,25 @@ describe("escape", () => {
     } finally {
       window.removeEventListener("keydown", stop, true);
     }
+  });
+});
+
+// PR 5 Task 5.2 (spec 08 S9.3): the layout classes as jsdom computes them from KIT_CSS.
+describe("kit classes in a document", () => {
+  beforeAll(() => {
+    const style = document.createElement("style");
+    style.textContent = KIT_CSS;
+    document.head.appendChild(style);
+  });
+
+  test("jb-grid uses repeat(auto-fit, minmax(220px, 1fr)); jb-row wraps; jb-hidden hides", () => {
+    document.body.innerHTML = '<div class="jb-grid"></div><div class="jb-row"></div><div class="jb-row jb-hidden"></div><div class="jb-cols-3"></div>';
+    const [grid, row, hidden, cols] = [...document.body.children];
+    expect(getComputedStyle(grid).display).toBe("grid");
+    expect(getComputedStyle(grid).gridTemplateColumns).toBe("repeat(auto-fit, minmax(220px, 1fr))");
+    expect(getComputedStyle(row).display).toBe("flex");
+    expect(getComputedStyle(row).flexWrap).toBe("wrap");
+    expect(getComputedStyle(hidden).display).toBe("none");
+    expect(getComputedStyle(cols).gridTemplateColumns).toBe("repeat(3, minmax(0, 1fr))");
   });
 });

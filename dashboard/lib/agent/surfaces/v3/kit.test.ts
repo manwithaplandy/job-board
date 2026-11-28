@@ -57,6 +57,64 @@ describe("variant 3 kit tokens", () => {
   });
 });
 
+// PR 5 Task 5.2 (spec 08 S9.3): layout and text helpers, all classes (the CSP refuses style="").
+const S93_CLASSES = [
+  "jb-stack", "jb-row", "jb-gap-1", "jb-gap-2", "jb-gap-3", "jb-gap-4", "jb-gap-5", "jb-gap-6",
+  "jb-grid", "jb-cols-2", "jb-cols-3", "jb-split", "jb-toolbar", "jb-h1", "jb-h2", "jb-h3",
+  "jb-stat", "jb-stat__value", "jb-stat__label", "jb-divider", "jb-scroll-x", "jb-table",
+  "jb-timeline", "jb-timeline__item", "jb-meter", "jb-meter__fill", "jb-hidden",
+  "jb-card", "jb-badge", "jb-muted", "jb-secondary", "jb-small", "jb-caption", "jb-success", "jb-warning", "jb-danger", "jb-accent", "jb-chart",
+] as const;
+
+/** The body of the one block that starts at `at` (the index of its opening brace), braces balanced. */
+function blockAt(css: string, at: number): string {
+  let depth = 0;
+  for (let i = at; i < css.length; i++) {
+    if (css[i] === "{") depth += 1;
+    if (css[i] === "}" && --depth === 0) return css.slice(at + 1, i);
+  }
+  throw new Error("unbalanced block");
+}
+
+/** Every rule as [selectors, body], read from flat CSS (no nested blocks). */
+function rules(css: string): Array<[string[], string]> {
+  return [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => [m[1].split(",").map((x) => x.trim()), m[2]]);
+}
+
+describe("variant 3 kit classes (S9.3)", () => {
+  test("KIT_CSS defines every class in the S9.3 table", () => {
+    const outside = KIT_CSS.replace(/@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, "");
+    const selectors = rules(outside).flatMap(([sel]) => sel);
+    for (const c of S93_CLASSES) {
+      const found = selectors.some((sel) => new RegExp(`\\.${c}(?![\\w-])`).test(sel));
+      expect({ class: c, defined: found }).toEqual({ class: c, defined: true });
+    }
+  });
+
+  test("one @media (max-width: 520px) block sets one column for the layout classes", () => {
+    const at = [...KIT_CSS.matchAll(/@media \(max-width: 520px\)\s*\{/g)];
+    expect(at).toHaveLength(1);
+    const body = blockAt(KIT_CSS, at[0].index! + at[0][0].length - 1);
+    const inside = rules(body);
+    const oneColumn = (cls: string) =>
+      inside.some(([sel, decl]) =>
+        sel.includes(`.${cls}`) && (/grid-template-columns:\s*(?:1fr|minmax\(0, 1fr\))\s*;/.test(decl) || /flex-direction:\s*column\s*;/.test(decl)),
+      );
+    for (const c of ["jb-row", "jb-cols-2", "jb-cols-3", "jb-split", "jb-grid"]) {
+      expect({ class: c, oneColumn: oneColumn(c) }).toEqual({ class: c, oneColumn: true });
+    }
+  });
+
+  test("the headings are 20, 18 and 16px at weight 700", () => {
+    const all = rules(KIT_CSS.replace(/@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, ""));
+    for (const [cls, px] of [["jb-h1", 20], ["jb-h2", 18], ["jb-h3", 16]] as const) {
+      const decl = all.filter(([sel]) => sel.includes(`.${cls}`)).map(([, body]) => body).join("");
+      expect(decl, cls).toMatch(new RegExp(`font-size: ${px}px;`));
+      expect(decl, cls).toMatch(/font-weight: 700;/);
+    }
+  });
+});
+
 describe("variant 3 kit script", () => {
   test("KIT_JS contains no URL and no reference to parent other than postMessage", () => {
     for (const text of [KIT_JS, KIT_CSS]) {

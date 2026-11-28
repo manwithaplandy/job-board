@@ -145,8 +145,56 @@ jb-field input {
 .jb-chart-label { fill: var(--text-secondary); font-size: var(--font-size-small); }
 `;
 
+// PR 5 (spec 08 S9.3): layout and text helpers. All classes, because the CSP refuses
+// style="" attributes; script may still set a property through element.style.setProperty
+// (the CSSOM is not an inline style attribute), which jb-meter__fill's width relies on.
+// Every layout class collapses to one column below 520px of frame width (the one @media
+// block at the end).
+const LAYOUT_CSS = `
+.jb-stack { display: flex; flex-direction: column; gap: var(--space-3); }
+.jb-row { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.jb-gap-1 { gap: var(--space-1); }
+.jb-gap-2 { gap: var(--space-2); }
+.jb-gap-3 { gap: var(--space-3); }
+.jb-gap-4 { gap: var(--space-4); }
+.jb-gap-5 { gap: var(--space-5); }
+.jb-gap-6 { gap: var(--space-6); }
+.jb-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-3); }
+.jb-cols-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.jb-cols-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); }
+.jb-split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); align-items: start; }
+.jb-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3); padding-bottom: var(--space-3); margin-bottom: var(--space-3); border-bottom: 1px solid var(--border); }
+.jb-h1, .jb-h2, .jb-h3 { margin: 0 0 var(--space-2); font-weight: 700; line-height: 1.3; color: var(--text-primary); }
+.jb-h1 { font-size: 20px; }
+.jb-h2 { font-size: 18px; }
+.jb-h3 { font-size: 16px; }
+.jb-stat { display: flex; flex-direction: column; gap: var(--space-1); }
+.jb-stat__value { font-size: 24px; font-weight: 700; line-height: 1.2; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.jb-stat__label { font-size: var(--font-size-caption); color: var(--text-secondary); }
+.jb-divider { height: 0; margin: var(--space-3) 0; border: 0; border-top: 1px solid var(--border); }
+.jb-scroll-x { max-width: 100%; overflow-x: auto; }
+.jb-table { width: 100%; border-collapse: collapse; font-size: var(--font-size-control); }
+.jb-table caption { padding: 0 0 var(--space-2); text-align: start; font-weight: 600; color: var(--text-primary); }
+.jb-table th, .jb-table td { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border); text-align: start; vertical-align: middle; }
+.jb-table th { font-size: var(--font-size-caption); font-weight: 600; color: var(--text-secondary); white-space: nowrap; }
+.jb-table .jb-num { text-align: end; font-variant-numeric: tabular-nums; }
+.jb-timeline { list-style: none; margin: 0; padding: 0; }
+.jb-timeline__item { position: relative; margin: 0; padding: 0 0 var(--space-4) var(--space-6); }
+.jb-timeline__item::before { content: ""; position: absolute; left: 4px; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent-solid); }
+.jb-timeline__item::after { content: ""; position: absolute; left: 8px; top: 20px; bottom: 0; width: 2px; background: var(--border-strong); }
+.jb-timeline__item:last-child::after { display: none; }
+.jb-meter { position: relative; height: 8px; overflow: hidden; border-radius: var(--radius-badge); background: var(--bg-muted); }
+.jb-meter__fill { height: 100%; width: 0; border-radius: inherit; background: var(--accent-solid); }
+.jb-sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+.jb-hidden { display: none !important; }
+@media (max-width: 520px) {
+  .jb-row { flex-direction: column; align-items: stretch; }
+  .jb-cols-2, .jb-cols-3, .jb-split, .jb-grid { grid-template-columns: minmax(0, 1fr); }
+}
+`;
+
 export const KIT_CSS: string =
-  tokenBlock(":root", KIT_TOKENS.light) + tokenBlock(':root[data-theme="dark"]', KIT_TOKENS.dark) + BASE_CSS;
+  tokenBlock(":root", KIT_TOKENS.light) + tokenBlock(':root[data-theme="dark"]', KIT_TOKENS.dark) + BASE_CSS + LAYOUT_CSS;
 
 // Plain ES2017 in a string: it is never bundled, it runs inside the frame. No "//"
 // anywhere in it (the static check reads "//" as a URL), so comments are /* */.

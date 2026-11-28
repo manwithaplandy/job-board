@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { VISUAL_ROUTES } from "./routes";
 import { assertRuntimeContracts } from "./runtime-contracts";
+import { inlineSandboxView, screenshotSandboxView } from "./sandbox-view";
 
 // The agent page across the width matrix (spec 08 S12, plan D10): 375 (a phone), 768 (a
 // tablet, the list still above the chat), 1024 (the list beside the chat from 900), 1280
@@ -24,6 +25,11 @@ import { assertRuntimeContracts } from "./runtime-contracts";
 // agent-page-ask-pending (spec 08 S10.2) also checks that the pending ask shows its whole
 // text (nothing clipped or scrolled sideways) and overlaps neither the view's header nor the
 // composer.
+// Fix wave I3: at the phone width, a state with an inline code view (a sandbox frame, not
+// expanded) also gets an element screenshot of that view frame, <route id>-w375-<theme>-view.png,
+// taken after the frame is scrolled into view and its document has painted (sandbox-view.ts):
+// the full-page screenshot shows a below-the-fold frame's box without its content.
+// agent-page-ask-pending must have one.
 
 const AUTHENTICATED_ONLY = process.env.VISUAL_SCOPE === "authenticated";
 const THEMES = ["light", "dark"] as const;
@@ -48,6 +54,8 @@ const STATES = [
 const REGIONS = [".rf-agent-threads", ".rf-agent-toolbar", ".rf-agent-transcript", ".rf-agent-composer"] as const;
 
 const isExpandedState = (state: string) => state.endsWith("-expanded");
+/** Fix wave I3: the width whose inline code views also get an element screenshot. */
+const PHONE_WIDTH = 375;
 
 async function assertExpanded(page: Page, width: number) {
   const box = await page.locator('.rf-view[data-expanded="true"]').boundingBox();
@@ -190,6 +198,11 @@ for (const width of WIDTHS) {
           if (isExpandedState(state)) await assertExpanded(page, width);
           if (state === "agent-page-ask-pending") await assertAskPending(page, width);
           await expect(page).toHaveScreenshot(`${route!.id}-w${width}-${theme}.png`, { fullPage: !isExpandedState(state) });
+          if (width === PHONE_WIDTH && !isExpandedState(state)) {
+            const view = await inlineSandboxView(page);
+            if (state === "agent-page-ask-pending") expect(view, `${state} has an inline code view at ${width}px`).not.toBeNull();
+            if (view) await screenshotSandboxView(view, `${route!.id}-w${width}-${theme}-view.png`);
+          }
         });
       }
     });

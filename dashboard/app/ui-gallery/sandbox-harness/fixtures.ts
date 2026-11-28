@@ -53,6 +53,17 @@ export const HARNESS_ASK_TEXT = "Show me the remote roles in Berlin";
 export const HARNESS_ASK_SWAPPED = "Compare the top two roles side by side";
 /** ask-bidi: the text the host must show once bidi, zero-width and control characters are gone and whitespace collapsed. */
 export const HARNESS_ASK_BIDI_SHOWN = "Show the top two roles now";
+/**
+ * ask-resize-slide (fix wave I1): how far the view shrinks itself on the pointer move after an
+ * ask or an action, in px. Send (or the chip) under the frame slides up by exactly this much.
+ */
+export const HARNESS_SLIDE_PX = 360;
+/**
+ * ask-cross-view-slide (fix wave follow-up): how far view A shrinks itself on its #shrink
+ * click, in px. Smaller than HARNESS_SLIDE_PX so the whole page, Send included, fits a 1,000 px
+ * viewport with no scroll before and after (a scroll would re-arm Send on its own).
+ */
+export const HARNESS_CROSS_SLIDE_PX = 200;
 
 /** The two gathered jobs the harness surfaces carry (AgentBlocksFixture's FIXTURE_GATHERED). */
 export const HARNESS_JOB_A = "greenhouse:acme:1001";
@@ -110,6 +121,12 @@ export const SANDBOX_CASE_NAMES = [
   "ask-synthetic-click",
   "ask-oversize",
   "ask-bidi",
+  // Fix wave I1: after an ask (or an action), the view shrinks itself on the next pointer
+  // move so Send (or the chip) slides up under the pointer; a press there must not count.
+  "ask-resize-slide",
+  // Fix wave follow-up (I1 residual a): view A above changes its own height, which moves the
+  // pending ask under view B below; a press on B's Send just after must not count.
+  "ask-cross-view-slide",
 ] as const;
 export type SandboxCaseName = (typeof SANDBOX_CASE_NAMES)[number];
 
@@ -982,7 +999,8 @@ host.onInit(function () {
 
   "ask-swap": {
     title: "ask: the view swaps the pending text 100 ms after the click; a press inside the arm window sends nothing",
-    frames: [{ tag: "ask-swap", html: doc("ask-swap", `<jb-button id="ask">Ask about Berlin</jb-button>
+    frames: [{ tag: "ask-swap", html: doc("ask-swap", `<style>#probe { display: none; }</style>
+<jb-button id="ask">Ask about Berlin</jb-button>
 <script>
 document.getElementById("ask").addEventListener("click", function () {
   P("first", { posted: host.ask("${HARNESS_ASK_TEXT}"), at: Date.now() });
@@ -1022,7 +1040,7 @@ host.onInit(function () {
   },
 
   "ask-oversize": {
-    title: "ask: inside a real click, a 281-character ask and one that normalises to nothing are both dropped",
+    title: "ask: inside a real click, a 281-character ask and one that normalises to nothing are both dropped; a valid third ask in the same click shows",
     frames: [{ tag: "ask-oversize", html: doc("ask-oversize", `<jb-button id="ask">Ask</jb-button>
 <script>
 var long = "";
@@ -1030,6 +1048,8 @@ for (var i = 0; i < 281; i++) long += "x";
 document.getElementById("ask").addEventListener("click", function () {
   P("long", { length: long.length, posted: host.ask(long) });
   P("blank", host.ask("\\u200B\\u202E \\u0007 \\n\\u2066\\u2069"));
+  // Fix wave M1: a valid ask in the same click, so the case fails if the gate is closed.
+  P("valid", host.ask("${HARNESS_ASK_TEXT}"));
 });
 host.onInit(function () {
   P("init", true);
@@ -1050,6 +1070,80 @@ host.onInit(function () {
   P("done");
 });
 </script>`) }],
+  },
+
+  "ask-resize-slide": {
+    title: "ask: after an ask or an action, the view shrinks itself on the next pointer move so Send or the chip slides under the pointer; that press counts for nothing",
+    frames: [{ tag: "ask-resize-slide", html: doc("ask-resize-slide", `<style>#probe { display: none; } .sbx-tall { height: ${HARNESS_SLIDE_PX}px; }</style>
+<jb-button id="ask">Ask about Berlin</jb-button>
+<jb-button id="act">Shortlist</jb-button>
+<div id="pad" class="sbx-tall"></div>
+<p>Move the pointer down here.</p>
+<script>
+var armed = false;
+var slides = 0;
+var pad = document.getElementById("pad");
+function arm() { pad.classList.add("sbx-tall"); armed = true; }
+document.getElementById("ask").addEventListener("click", function () {
+  arm();
+  P("asked", host.ask("${HARNESS_ASK_TEXT}"));
+});
+document.getElementById("act").addEventListener("click", function () {
+  arm();
+  host.action("shortlist.set", { jobId: "${HARNESS_JOB_A}", state: "shortlisted" });
+  P("acted", true);
+});
+window.addEventListener("pointermove", function () {
+  if (!armed) return;
+  armed = false;
+  pad.classList.remove("sbx-tall");
+  slides += 1;
+  P("slid" + slides, { at: Date.now() });
+}, true);
+host.onInit(function () {
+  P("init", true);
+  P("done");
+});
+</script>`) }],
+  },
+
+  "ask-cross-view-slide": {
+    title: "ask: view A shrinks itself while view B below has a pending ask, so B's Send moves; a press on it just after counts for nothing",
+    frames: [
+      { tag: "cross-a", html: doc("ask-cross-view-slide", `<style>#probe { display: none; } .sbx-tall { height: ${HARNESS_CROSS_SLIDE_PX}px; }</style>
+<jb-button id="shrink">Shrink</jb-button>
+<jb-button id="grow">Grow</jb-button>
+<div id="pad" class="sbx-tall"></div>
+<script>
+var shrinks = 0;
+var pad = document.getElementById("pad");
+document.getElementById("shrink").addEventListener("click", function () {
+  if (!pad.classList.contains("sbx-tall")) return;
+  pad.classList.remove("sbx-tall");
+  shrinks += 1;
+  P("shrunk" + shrinks, { at: Date.now() });
+});
+document.getElementById("grow").addEventListener("click", function () {
+  pad.classList.add("sbx-tall");
+  P("grown" + shrinks, true);
+});
+host.onInit(function () {
+  P("init", true);
+  P("done");
+});
+</script>`, "cross-a") },
+      { tag: "cross-b", html: doc("ask-cross-view-slide", `<style>#probe { display: none; }</style>
+<jb-button id="ask">Ask about Berlin</jb-button>
+<script>
+document.getElementById("ask").addEventListener("click", function () {
+  P("asked", host.ask("${HARNESS_ASK_TEXT}"));
+});
+host.onInit(function () {
+  P("init", true);
+  P("done");
+});
+</script>`, "cross-b") },
+    ],
   },
 };
 

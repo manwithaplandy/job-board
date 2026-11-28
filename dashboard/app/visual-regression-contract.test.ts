@@ -173,6 +173,16 @@ describe("visual regression route inventory", () => {
       "agent-page-ask-pending",
     ]) expect(spec).toContain(`"${state}"`);
     expect(spec).toContain("assertAskPending(page, width)");
+    // Fix wave I3: a phone-width element screenshot of the inline code view, once it has painted,
+    // in both specs (a full-page shot leaves a below-the-fold frame blank).
+    expect(spec).toContain("const PHONE_WIDTH = 375;");
+    expect(spec).toContain("screenshotSandboxView(view, `${route!.id}-w${width}-${theme}-view.png`)");
+    const cohesion = readFileSync("tests/visual/ui-cohesion.spec.ts", "utf8");
+    expect(cohesion).toContain('viewport.id === "mobile"');
+    expect(cohesion).toContain("screenshotSandboxView(view, `${route.id}-${viewport.id}-${theme}-view.png`)");
+    const helper = readFileSync("tests/visual/sandbox-view.ts", "utf8");
+    expect(helper).toContain("scrollIntoViewIfNeeded()");
+    expect(helper).toContain("toHaveScreenshot(name)");
     // The surface column is gone (spec 08 S4.1): the spec asserts it is absent, never shown.
     expect(spec).not.toContain("SPLIT_FROM");
     expect(spec).toContain("-w${width}-${theme}.png");

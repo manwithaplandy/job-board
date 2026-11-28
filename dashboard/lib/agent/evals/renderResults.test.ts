@@ -1,7 +1,7 @@
 // Reading the render smoke's results back (plan Task 2.13): files that do not match are
 // skipped, the judge gets each variant 3 frame's words from its own matrix run only, and
 // the counts add up.
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
@@ -29,6 +29,27 @@ function result(name: string, over: Partial<RenderResult> = {}): RenderResult {
 }
 
 describe("render smoke results", () => {
+  test("fix wave I2: the render smoke counts pending asks on inline rows with no input, asserts zero and writes asksWithoutClick", () => {
+    const spec = readFileSync(path.join(process.cwd(), "tests/sandbox/render-smoke.spec.ts"), "utf8");
+    expect(spec).toContain('page.locator("[data-sandbox-ask]").count()');
+    expect(spec).toContain("checked.asksWithoutClick = asksWithoutClick;");
+    expect(spec).toMatch(/if \(frame && mode === "inline"\)/);
+    expect(spec).toContain("expect(asksWithoutClick, ");
+    // Follow-up round: a replaced or torn-down pending ask cannot read as zero.
+    expect(spec).toContain('page.locator("[data-sandbox-asks-received]")');
+    expect(spec).toContain('checked.fallbacks.filter((f) => f === "ask_rate_limit" || f === "ask_total_limit").length');
+    expect(spec).toContain("asksWithoutClick = Math.max(pendingAsks, received) + askTeardowns;");
+    // The row the spec writes carries it at the top level, where ResultSchema reads it.
+    expect(spec).toContain("JSON.stringify({ ...entry, viewport, theme, mode, failures, ...checked }, null, 2)");
+    const dir = mkdtempSync(path.join(os.tmpdir(), "render-results-asks-"));
+    try {
+      writeFileSync(path.join(dir, "a.json"), JSON.stringify({ ...result(`injection/${RUN}/m/v3/c.json#0`, { source: "injection" }), mode: "inline", asksWithoutClick: 0 }));
+      expect(readRenderResults(dir)[0]?.asksWithoutClick).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("reads the files that match and skips the rest; a missing folder is empty", () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "render-results-"));
     try {

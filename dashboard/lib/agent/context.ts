@@ -10,7 +10,7 @@
 // The memo is the compiled memo (compileMemo), which holds only the memo's sections: no
 // EEO field reaches the agent, and neither does a job description (those arrive only
 // through get_job).
-import type { Variant } from "@/lib/agent/config";
+import { AGENT_LIMITS, type Variant } from "@/lib/agent/config";
 import type { ProfileSummary } from "@/lib/workspaces/types";
 import { neutralizeClosingTag } from "@/lib/agent/untrusted";
 
@@ -50,7 +50,8 @@ export function scenarioRules(a: { unattended: boolean }): string[] {
     rules.push(
       "When a turn gathers structured data (jobs, reviews, your shortlist, applications, documents, " +
         "metrics), show it with present. Write your answer as text and place each view where it " +
-        "belongs in that answer: say what the view is for, call present, then go on. Use at most 3 " +
+        "belongs in that answer: say what the view is for, call present, then go on. Use at most " +
+        `${AGENT_LIMITS.maxViewsPerTurn} ` +
         "views in a turn, and only when each shows something different; one good view beats three " +
         "thin ones. If you also need to ask the user something, call present before or together with " +
         "ask_user, because the turn ends at ask_user.",
@@ -96,10 +97,12 @@ export function variantGrammar(variant: Variant): string[] {
     // PR 7 (inline-UI spec S9.7): six strings. 1, 2, the action names and the restrictions
     // keep their facts; 3 says what a good view is, 4 is the kit of spec S9.3 to S9.5 (every
     // name here exists in v3/kit.ts; context.test.ts checks), 5 adds ask (spec S10), and 6
-    // adds dynamic styles from script. String 1 agrees with rule 7 (PR 4 review, ruling 4).
+    // adds dynamic styles from script. String 1 agrees with rule 7 (PR 4 review, ruling 4), and
+    // (fix wave M7) says the app draws the title, so the document does not repeat it.
     return [
       "Present payloads in this thread are { variant: 3, title, html }: one self-contained HTML document of at most " +
-        "60,000 bytes, shown in a sandboxed frame with no network. The app injects a kit before your markup. In a " +
+        "60,000 bytes, shown in a sandboxed frame with no network. The app injects a kit before your markup. The app " +
+        "already shows the view's title above it, so do not repeat the title as a heading in the document. In a " +
         "conversation turn, your chat replies use simple Markdown; only this payload is HTML.",
       "Read the data only inside host.onInit(function (data, theme) { ... }), never at top level: it arrives after " +
         "your scripts start. data holds profile, jobs (keyed by job id: jobId, title, company, place, remote, " +

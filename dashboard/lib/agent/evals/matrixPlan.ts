@@ -421,6 +421,37 @@ export function estimateGolden(model: string, maxCases: number): TokenCost {
   );
 }
 
+/**
+ * Fix wave M6: the input tokens the variant 3 grammar (context.ts variantGrammar(3), about
+ * 6K characters more than variant 1's) adds to every call of a variant 3 run, rounded up.
+ * V1_CALL_TOKENS does not hold it; matrixPlan.test.ts checks it covers the grammar's length
+ * at DRY_RUN_PROMPT_BYTES_PER_TOKEN (the review's "about 900" was below that).
+ */
+export const V3_PROMPT_EXTRA_TOKENS = 1_600;
+/** Fix wave M6: the calls per surface the golden upper bound lets write a whole variant 3 document (written, then once more on a repair). */
+export const GOLDEN_V3_LONG_CALLS_PER_SURFACE = 2;
+
+/** The calls of one golden case the variant 3 upper bound prices at the output cap. */
+function goldenV3LongCalls(scenario: MatrixScenario): number {
+  return Math.min(V1_CALLS[scenario], V1_SURFACES[scenario] * GOLDEN_V3_LONG_CALLS_PER_SURFACE);
+}
+
+/**
+ * Fix wave M6: the variant 3 golden run's upper bound. estimateGolden prices a variant 3 case
+ * as variant 1 (600 output tokens a call, the variant 1 prompt); here every call also carries
+ * V3_PROMPT_EXTRA_TOKENS, and GOLDEN_V3_LONG_CALLS_PER_SURFACE calls per surface the case
+ * presents (V1_SURFACES) emit outputTokensFor(3), the variant 3 output cap. With `allAtCap`,
+ * every call emits the cap: the most the cases could cost before a cap stops them.
+ */
+export function estimateGoldenV3Upper(model: string, maxCases: number, allAtCap = false): TokenCost {
+  const input = V1_CALL_TOKENS.input + V3_PROMPT_EXTRA_TOKENS;
+  return goldenCases(maxCases).reduce((sum, c) => {
+    const calls = V1_CALLS[c.scenario];
+    const long = allAtCap ? calls : goldenV3LongCalls(c.scenario);
+    return add(sum, add(cost(model, long, input, outputTokensFor(3), CACHE_SHARES.agent), cost(model, calls - long, input, V1_CALL_TOKENS.output, CACHE_SHARES.agent)));
+  }, ZERO);
+}
+
 /** The judge's estimate: one call per pair, at the judge model's own list price (it must be priced). */
 export function estimateJudge(model: string, pairs: number = JUDGE_PAIRS_DEFAULT): TokenCost {
   return cost(model, pairs, JUDGE_CALL_TOKENS.input, JUDGE_CALL_TOKENS.output, CACHE_SHARES.judge);
@@ -724,11 +755,37 @@ export function formatGoldenDryRun(a: { variant: Variant; model: string; seed: n
     "Each case is priced as a matrix variant 1 cell (lib/agent/evals/matrixPlan.ts V1_CALLS, V1_CALL_TOKENS), at list prices",
     "(OpenRouter's prices for these slugs are unverified); variants 2 and 3 are priced the same. A call that reports no cost",
     "stops the run (cost_unknown), so --max-usd always holds. The caps below are what stops a real run.",
+    ...(a.variant === 3 ? goldenV3UpperLines(a.model, a.caps, kinds) : []),
     ...lookAheadNote([a.model], kinds, a.caps.maxUsd),
     ...CACHE_NOTE,
     "",
     ...capLines("golden", a.caps, null),
   ].join("\n");
+}
+
+/**
+ * Fix wave M6: the variant 3 golden dry run's upper bound, as the injection dry run has one:
+ * the variant 3 prompt's extra input on every call, and each present's document written whole
+ * twice at the variant 3 output cap; then every call at the cap. Each says whether the caps
+ * would stop the run first.
+ */
+function goldenV3UpperLines(model: string, caps: EvalCaps, kinds: readonly CallKind[]): string[] {
+  const cases = goldenCases(caps.maxCases);
+  const u = estimateGoldenV3Upper(model, caps.maxCases);
+  const top = estimateGoldenV3Upper(model, caps.maxCases, true);
+  const long = cases.reduce((n, c) => n + goldenV3LongCalls(c.scenario), 0);
+  const cap = outputTokensFor(3).toLocaleString("en-US");
+  const reserve = runReserveMicros(model, kinds);
+  const fits = (e: TokenCost) => (within(e, caps.maxTokens, caps.maxUsd, reserve) ? "within the caps" : "past a cap, so the run would stop first");
+  return [
+    "",
+    `Upper bound (variant 3): if every call carries the variant 3 prompt's extra ${V3_PROMPT_EXTRA_TOKENS.toLocaleString("en-US")} input tokens and ` +
+      `${long} of the ${u.calls} calls (${GOLDEN_V3_LONG_CALLS_PER_SURFACE === 2 ? "two" : GOLDEN_V3_LONG_CALLS_PER_SURFACE} per view the cases present) emit ${cap} output tokens, ` +
+      `${model} is ${dollars(u.costMicros)} uncached, ${dollars(u.cachedCostMicros)} cached (${millions(u.inputTokens)} input, ${millions(u.outputTokens)} output tokens; ` +
+      `the estimate above gives every call ${V1_CALL_TOKENS.output}): ${fits(u)}.`,
+    `With every call at its ${cap}-token limit: ${dollars(top.costMicros)} uncached, ${dollars(top.cachedCostMicros)} cached (${millions(top.outputTokens)} output tokens): ${fits(top)}.`,
+    "",
+  ];
 }
 
 /** One stage of a pass in its dry run. */

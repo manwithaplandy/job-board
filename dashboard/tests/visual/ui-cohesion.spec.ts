@@ -6,6 +6,7 @@ import {
 } from "./auth";
 import { VISUAL_ROUTES } from "./routes";
 import { assertRuntimeContracts } from "./runtime-contracts";
+import { inlineSandboxView, screenshotSandboxView } from "./sandbox-view";
 
 const PUBLIC_ONLY = process.env.VISUAL_SCOPE === "public";
 const AUTHENTICATED_ONLY = process.env.VISUAL_SCOPE === "authenticated";
@@ -94,6 +95,14 @@ for (const viewport of VIEWPORTS) {
               fullPage: !route.viewportOnly,
               mask: route.live?.mask.map((selector) => page.locator(selector)),
             });
+            // Fix wave I3: on the phone, a public page with an inline code view (a sandbox frame,
+            // not expanded) also gets an element screenshot of that view frame, taken once the
+            // frame is in view and painted; the full-page one shows a below-the-fold frame blank.
+            if (viewport.id === "mobile" && route.access === "public" && !route.viewportOnly) {
+              const view = await inlineSandboxView(page);
+              if (route.id === "agent-page-ask-pending-fixture") expect(view, `${route.id} has an inline code view`).not.toBeNull();
+              if (view) await screenshotSandboxView(view, `${route.id}-${viewport.id}-${theme}-view.png`);
+            }
           });
         });
       }

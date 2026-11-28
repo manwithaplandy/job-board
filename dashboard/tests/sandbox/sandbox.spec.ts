@@ -1440,8 +1440,21 @@ test.describe("a view's ask (PR 6)", () => {
       // (a capture-phase pointerdown on Send), and it is made only while it can still land
       // inside CHIP_ARM_MS. A slow attempt is dismissed and tried again (each attempt is two
       // asks, so three stay under the per-minute limit); if none lands in time, the case fails.
+      //
+      // Fix round 3: the document's P("swap") adds a probe line right after the swap, so the
+      // kit reports a taller document and the host grows the frame a frame or two after the
+      // swapped text renders; Send, below the frame, moves down. A box read in between is
+      // stale and the press misses (WebKit CI, pressAt null). So the box is read in the page,
+      // once Send has held still for SETTLE_MS, and the press is aimed only if Send is what is
+      // at its centre. A press that still misses is a failed attempt, never a pass: before it
+      // is retried, nothing was sent, the pending message is still there (Dismiss was not
+      // pressed), and no other control was pressed.
       await page.evaluate((swapped) => {
-        const rec = { shownAt: null as number | null, pressAt: null as number | null };
+        const rec = {
+          shownAt: null as number | null,
+          pressAt: null as number | null,
+          presses: [] as { control: boolean; what: string }[],
+        };
         (window as unknown as { __askSwap: typeof rec }).__askSwap = rec;
         new MutationObserver(() => {
           if (rec.shownAt !== null) return;
@@ -1450,51 +1463,161 @@ test.describe("a view's ask (PR 6)", () => {
         document.addEventListener(
           "pointerdown",
           (e) => {
-            if (rec.pressAt === null && e.target instanceof Element && e.target.closest("[data-sandbox-ask-send]")) rec.pressAt = performance.now();
+            const t = e.target;
+            if (t instanceof Element && t.closest("[data-sandbox-ask-send]")) {
+              if (rec.pressAt === null) rec.pressAt = performance.now();
+              return;
+            }
+            if (!(t instanceof Element)) {
+              rec.presses.push({ control: false, what: "a non-element target" });
+              return;
+            }
+            const control = t.closest("button, a[href], input, select, textarea, summary, iframe, [role='button']");
+            const el = control ?? t;
+            const label = el.getAttribute("aria-label") ?? (el.textContent ?? "").trim().slice(0, 60);
+            const where = el.closest("[data-sandbox-ask]") ? " in the pending message" : "";
+            rec.presses.push({ control: control !== null, what: `<${el.tagName.toLowerCase()} class="${el.getAttribute("class") ?? ""}"> "${label}"${where}` });
           },
           true,
         );
       }, HARNESS_ASK_SWAPPED);
-      type SwapClock = { shownAt: number | null; pressAt: number | null; now: number };
+      type SwapPress = { control: boolean; what: string };
+      type SwapClock = { shownAt: number | null; pressAt: number | null; presses: SwapPress[]; now: number };
+      type SwapRec = { shownAt: number | null; pressAt: number | null; presses: SwapPress[] };
       const swapClock = () =>
         page.evaluate((): SwapClock => {
-          const rec = (window as unknown as { __askSwap: { shownAt: number | null; pressAt: number | null } }).__askSwap;
-          return { shownAt: rec.shownAt, pressAt: rec.pressAt, now: performance.now() };
+          const rec = (window as unknown as { __askSwap: SwapRec }).__askSwap;
+          return { shownAt: rec.shownAt, pressAt: rec.pressAt, presses: rec.presses.slice(), now: performance.now() };
         });
       const resetSwapClock = () =>
         page.evaluate(() => {
-          const rec = (window as unknown as { __askSwap: { shownAt: number | null; pressAt: number | null } }).__askSwap;
+          const rec = (window as unknown as { __askSwap: SwapRec }).__askSwap;
           rec.shownAt = null;
           rec.pressAt = null;
+          rec.presses = [];
         });
       // Room left for the press itself and for the render after the text appears.
       const PRESS_BY_MS = CHIP_ARM_MS - 250;
       const LANDED_BY_MS = CHIP_ARM_MS - 100;
+      // How long Send's box must hold still before it is aimed at (the frame's resize lands a
+      // frame or two after the swap; this leaves room for a slow one).
+      const SETTLE_MS = 100;
+      type SendBox = { x: number; y: number; width: number; height: number };
+      type Settled = { shownAt: number | null; now: number; box: SendBox | null; settled: boolean; hit: boolean };
+      // Waits in the page for the swapped text, then for Send's box to hold still for SETTLE_MS
+      // (giving up at PRESS_BY_MS after the swap), and says whether Send is what is at its centre.
+      const settleSend = () =>
+        page.evaluate(
+          async ({ waitMs, stableMs, capMs }): Promise<Settled> => {
+            const rec = (window as unknown as { __askSwap: SwapRec }).__askSwap;
+            const nextFrame = () =>
+              new Promise<void>((resolve) => {
+                let done = false;
+                const go = () => {
+                  if (done) return;
+                  done = true;
+                  resolve();
+                };
+                requestAnimationFrame(go);
+                setTimeout(go, 32);
+              });
+            const t0 = performance.now();
+            while (rec.shownAt === null && performance.now() - t0 < waitMs) await nextFrame();
+            const shownAt = rec.shownAt;
+            if (shownAt === null) return { shownAt: null, now: performance.now(), box: null, settled: false, hit: false };
+            let key = "";
+            let since = performance.now();
+            let box: SendBox | null = null;
+            let settled = false;
+            for (;;) {
+              const r = document.querySelector("[data-sandbox-ask] [data-sandbox-ask-send]")?.getBoundingClientRect() ?? null;
+              const k = r === null ? "" : `${r.x},${r.y},${r.width},${r.height}`;
+              const now = performance.now();
+              if (k !== key) {
+                key = k;
+                since = now;
+                box = r === null ? null : { x: r.x, y: r.y, width: r.width, height: r.height };
+              } else if (box !== null && now - since >= stableMs) {
+                settled = true;
+                break;
+              }
+              if (now - shownAt >= capMs) break;
+              await nextFrame();
+            }
+            const at = box === null ? null : document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+            return { shownAt, now: performance.now(), box, settled, hit: at?.closest("[data-sandbox-ask-send]") != null };
+          },
+          { waitMs: 3_000, stableMs: SETTLE_MS, capMs: PRESS_BY_MS },
+        );
+      // What is at a viewport point now, for the record of a press that missed.
+      const whatIsAt = (x: number, y: number) =>
+        page.evaluate(
+          ({ px, py }) => {
+            const el = document.elementFromPoint(px, py);
+            if (el === null) return { frame: false, what: "nothing (outside the viewport)" };
+            return { frame: el.closest("iframe") !== null, what: `<${el.tagName.toLowerCase()} class="${el.getAttribute("class") ?? ""}">` };
+          },
+          { px: x, py: y },
+        );
+      const sendTop = () => send.evaluate((el) => Math.round(el.getBoundingClientRect().y));
+      const dismissAndRetry = async (attempt: number) => {
+        await pending.getByRole("button", { name: `Dismiss: ${HARNESS_ASK_SWAPPED}` }).click();
+        await expect(pending, `${run.at}: Dismiss cleared the pending message (attempt ${attempt})`).toHaveCount(0);
+      };
       const tries: string[] = [];
       let shownAt: number | null = null;
       for (let attempt = 1; attempt <= 3 && shownAt === null; attempt++) {
         await resetSwapClock();
         expect(await clickInFrame(run, "#ask"), `${run.at}: the ask button was clicked (attempt ${attempt})`).toBe(true);
-        await expect(text, `${run.at}: the swapped text replaced the first (attempt ${attempt})`).toHaveText(HARNESS_ASK_SWAPPED, { timeout: 3_000 });
-        const box = await send.boundingBox();
-        expect(box, `${run.at}: Send has a box`).not.toBeNull();
-        const before = await swapClock();
-        if (before.shownAt === null || before.now - before.shownAt > PRESS_BY_MS) {
-          tries.push(`attempt ${attempt}: ${before.shownAt === null ? "the swap was not observed" : `${Math.round(before.now - before.shownAt)} ms had passed before the press`}`);
-          await pending.getByRole("button", { name: `Dismiss: ${HARNESS_ASK_SWAPPED}` }).click();
-          await expect(pending, `${run.at}: Dismiss cleared the pending message`).toHaveCount(0);
+        const before = await settleSend();
+        expect(before.shownAt, `${run.at}: the swapped text replaced the first (attempt ${attempt})`).not.toBeNull();
+        await expect(text, `${run.at}: the swapped text is the one on screen (attempt ${attempt})`).toHaveText(HARNESS_ASK_SWAPPED);
+        const box = before.box;
+        if (box === null || !before.settled || !before.hit || before.now - before.shownAt! > PRESS_BY_MS) {
+          const why =
+            box === null
+              ? "Send had no box"
+              : !before.settled
+                ? `Send was still moving ${Math.round(before.now - before.shownAt!)} ms after the swap`
+                : !before.hit
+                  ? "Send was not what was at its centre"
+                  : `${Math.round(before.now - before.shownAt!)} ms had passed before the press`;
+          tries.push(`attempt ${attempt}: not pressed, ${why}`);
+          expect(await asksSent(page), `${run.at}: nothing was sent before the retry (attempt ${attempt})`).toEqual([]);
+          await dismissAndRetry(attempt);
           continue;
         }
-        await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+        const cx = box.x + box.width / 2;
+        const cy = box.y + box.height / 2;
+        await page.mouse.click(cx, cy);
         const after = await swapClock();
-        expect(after.pressAt, `${run.at}: the press reached Send`).not.toBeNull();
-        const elapsed = after.pressAt! - before.shownAt;
+        const controls = after.presses.filter((p) => p.control).map((p) => p.what);
+        if (after.pressAt === null) {
+          // A miss is a failed attempt. Before the retry: nothing was sent, the pending message
+          // and its text are still there (so Dismiss was not pressed), no other control on the
+          // host page took the press, and it did not go into the frame.
+          const landed = await whatIsAt(cx, cy);
+          expect(await asksSent(page), `${run.at}: a press that missed Send sent something (attempt ${attempt})`).toEqual([]);
+          await expect(pending, `${run.at}: a press that missed Send left the pending message, Dismiss not pressed (attempt ${attempt})`).toHaveCount(1);
+          await expect(text, `${run.at}: a press that missed Send left the swapped text (attempt ${attempt})`).toHaveText(HARNESS_ASK_SWAPPED);
+          expect(controls, `${run.at}: a press that missed Send pressed no other control, Dismiss included (attempt ${attempt})`).toEqual([]);
+          expect(landed.frame, `${run.at}: a press that missed Send went into the frame (attempt ${attempt})`).toBe(false);
+          tries.push(
+            `attempt ${attempt}: the press at y=${Math.round(cy)} missed Send (now at top y=${await sendTop()}, was ${Math.round(box.y)}) and landed on ${after.presses[0]?.what ?? landed.what}`,
+          );
+          await dismissAndRetry(attempt);
+          continue;
+        }
+        expect(controls, `${run.at}: the early press reached Send and nothing else`).toEqual([]);
+        const elapsed = after.pressAt - before.shownAt!;
         // Past PRESS_BY_MS the press could have armed and sent: a failure, never a skip.
         expect(elapsed, `${run.at}: the early press landed ${Math.round(elapsed)} ms after the swapped text appeared, too late to test the arm window`).toBeLessThan(LANDED_BY_MS);
         expect(await asksSent(page), `${run.at}: a press ${Math.round(elapsed)} ms after the swap sent something`).toEqual([]);
         await expect(pending, `${run.at}: the early press left the pending message`).toHaveCount(1);
         await expect(text, `${run.at}: the swapped text is still the one on screen`).toHaveText(HARNESS_ASK_SWAPPED);
-        run.note(`The early press landed about ${Math.round(elapsed)} ms after the swapped text appeared and sent nothing (attempt ${attempt}).`);
+        run.note(
+          `The early press landed about ${Math.round(elapsed)} ms after the swapped text appeared and sent nothing (attempt ${attempt}${tries.length > 0 ? `; earlier: ${tries.join("; ")}` : ""}).`,
+        );
         shownAt = before.shownAt;
       }
       expect(shownAt, `${run.at}: no early press could be made inside the arm window: ${tries.join("; ")}`).not.toBeNull();

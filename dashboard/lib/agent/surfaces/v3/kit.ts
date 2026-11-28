@@ -15,8 +15,9 @@
 //   host.onInit(cb)         cb(data, theme) once init has arrived
 //   host.action(name, args) posts a request to the host and nothing else: the host turns
 //                           it into a chip the user must press (D13, SandboxFrame)
-//   host.ask(text)          PR 6: proposes a follow-up message, only while the user has just
-//                           acted (true when posted). It posts the text normalised as the
+//   host.ask(text)          PR 6: proposes a follow-up message, only within 1,000 ms of a
+//                           trusted input event (and while navigator.userActivation is active,
+//                           where it exists) (true when posted). It posts the text normalised as the
 //                           host does (bridge.ts normalizeAskText) and refuses, false, one
 //                           that is empty or over 280 code points once normalised; the host
 //                           shows it as a pending message the user must send (spec 08 S10)
@@ -685,11 +686,19 @@ export const KIT_JS: string = `(function () {
 
   /* PR 6 (spec 08 S10.2, layer 1): host.ask posts only while the user has just acted. This is
      a filter that stops asks on load and in loops, not the control: the host never sends an
-     ask without a press on its own Send. Where the browser has navigator.userActivation, its
-     isActive getter is taken now, from the object's own prototype, before model code can
-     replace either; a value model code later puts on the object is never read. Where it is
-     missing, the kit keeps its own flag: set by a trusted pointerup or keyup, seen in the
-     capture phase on the window before any model listener, and cleared 1,000 ms later. */
+     ask without a press on its own Send.
+     Fix round 2 (CI run 46111454100): navigator.userActivation.isActive alone is not evidence
+     of input. Browser automation grants transient activation to a frame whenever it evaluates
+     script there (Playwright sends userGesture: true on Chromium and emulateUserGesture: true
+     on WebKit with every evaluation, and Firefox reported activation with no input too), so
+     isActive was true on load in all three engines. The gate is therefore the kit's own flag,
+     always: set by a trusted (isTrusted) activation-triggering input event (keydown or keyup
+     other than Escape, mousedown, pointerdown, pointerup, touchend) seen in the capture phase
+     on the window before any model listener, and cleared 1,000 ms later. Script cannot make
+     a trusted event, and evaluation by a debugger makes none. Where the browser has
+     navigator.userActivation, isActive must be true as well; its getter is taken now, from the
+     object's own prototype, before model code can replace either, and a value model code later
+     puts on the object is never read. */
   var ACTIVATION_MS = 1000;
   var activation = null;
   var activeOf = null;
@@ -703,24 +712,25 @@ export const KIT_JS: string = `(function () {
   } catch (err) { activation = null; activeOf = null; }
   var armed = false;
   var armCount = 0;
-  if (activation === null) {
-    var armOnTrusted = function (e) {
-      var trusted = false;
-      try { trusted = e.isTrusted === true; } catch (err) { return; }
-      if (!trusted) return;
-      armed = true;
-      armCount += 1;
-      var mine = armCount;
-      later(function () { if (armCount === mine) armed = false; }, ACTIVATION_MS);
-    };
-    window.addEventListener("pointerup", armOnTrusted, true);
-    window.addEventListener("keyup", armOnTrusted, true);
-  }
+  var armOnTrusted = function (e) {
+    try {
+      /* isTrusted is an unforgeable own property of each event: page script cannot redefine it. */
+      if (e.isTrusted !== true) return;
+      if ((e.type === "keydown" || e.type === "keyup") && keyOf && keyOf(e) === "Escape") return;
+    } catch (err) { return; }
+    armed = true;
+    armCount += 1;
+    var mine = armCount;
+    later(function () { if (armCount === mine) armed = false; }, ACTIVATION_MS);
+  };
+  var ARM_EVENTS = ["keydown", "keyup", "mousedown", "pointerdown", "pointerup", "touchend"];
+  for (var ae = 0; ae < ARM_EVENTS.length; ae++) window.addEventListener(ARM_EVENTS[ae], armOnTrusted, true);
   function userActive() {
+    if (!armed) return false;
     if (activation !== null) {
       try { return activeOf(activation) === true; } catch (err) { return false; }
     }
-    return armed;
+    return true;
   }
   /* PR 6 review, minor 6: the same normalisation the host applies (bridge.ts
      normalizeAskText, its character class shared as source text), so host.ask returns false,

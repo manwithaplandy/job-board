@@ -7,7 +7,15 @@ import { toolActivityLabel, toolFailureLabel, toolProgressLabel } from "@/lib/ag
 
 export type StepLine = { key: string; label: string; count: number; running: boolean };
 export type StepSummary = { groups: StepLine[]; failures: string[]; declined: string[]; total: number; failed: number };
-export type StepsState = "working" | "done" | "stopped";
+/**
+ * "pending": a stored reply still pending inside AGENT_LIMITS.staleTurnMs that this page is
+ * not streaming (a reload mid-turn). The run may still finish, so it reads neither done nor
+ * stopped.
+ */
+export type StepsState = "working" | "done" | "stopped" | "pending";
+
+/** The pending row's text: the page cannot follow a run it did not start, so a reload shows the reply. */
+export const STEPS_PENDING_LABEL = "Still working. Reload to see the reply.";
 
 type Part = UIMessage["parts"][number];
 type ToolPart = Extract<Part, { toolCallId: string }>;
@@ -97,8 +105,9 @@ function steps(n: number): string {
   return n === 1 ? "1 step" : `${n} steps`;
 }
 
-/** The collapsed row's text for a finished or stopped turn. */
+/** The collapsed row's text for a finished, stopped or still-pending turn. */
 export function stepsHeadline(summary: StepSummary, state: StepsState): string {
+  if (state === "pending") return STEPS_PENDING_LABEL;
   if (state === "stopped") return `Stopped after ${steps(summary.total)}`;
   const head = `Worked through ${steps(summary.total)}`;
   return summary.failed > 0 ? `${head}, ${summary.failed} did not work` : head;

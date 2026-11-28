@@ -28,8 +28,9 @@ export function StepsRow({
   open: boolean;
   onToggle: () => void;
 }) {
-  // A finished answer that called no tool has no row at all.
-  if (state !== "working" && summary.total === 0) return null;
+  // A finished answer that called no tool has no row at all. A pending one keeps its row:
+  // it is the only sign the reply is still on its way.
+  if (state !== "working" && state !== "pending" && summary.total === 0) return null;
   const panelId = `${id}-panel`;
   return (
     <div className={`rf-steps rf-steps--${state}`}>
@@ -37,7 +38,8 @@ export function StepsRow({
         {state === "working" ? (
           <span className="rf-steps__spinner" aria-hidden="true" />
         ) : (
-          <Icon name={state === "done" ? "check" : "warning"} size={16} className="rf-steps__icon" />
+          // Pending is neutral: no check (it is not done) and no warning (nothing went wrong).
+          <Icon name={state === "done" ? "check" : state === "pending" ? "refresh" : "warning"} size={16} className="rf-steps__icon" />
         )}
         <span className="rf-steps__label">{state === "working" ? currentLabel : stepsHeadline(summary, state)}</span>
         {/* The Send button's status announces the wait; the ticking time is for the eye only. */}

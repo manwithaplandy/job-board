@@ -22,6 +22,7 @@ import { chargeStep } from "@/lib/agent/runs";
 import { saveThreadSummary, type AgentThread } from "@/lib/agent/threads";
 import { neutralizeClosingTag } from "@/lib/agent/untrusted";
 import type { AgentUIMessage } from "@/lib/agent/messageCodec";
+import { markViewMessages } from "@/lib/agent/viewMessages";
 import { parseOrNull } from "@/lib/zodParse";
 
 /** The id of the synthetic message that carries the summary to the model. */
@@ -72,10 +73,14 @@ export function summaryMessage(text: string): AgentUIMessage {
 
 const askedQuestions = z.object({ questions: z.array(z.object({ label: z.string() })) });
 
-/** One line per message: its role, its text and the names of the tools it called. */
+/**
+ * One line per message: its role, its text and the names of the tools it called. A message
+ * sent from a view carries VIEW_MESSAGE_MARKER, as it does in the turn's own history
+ * (polish wave, M3), so the summary does not take a view's words for the user's own.
+ */
 function transcript(messages: readonly AgentUIMessage[]): string {
   const lines: string[] = [];
-  for (const m of messages) {
+  for (const m of markViewMessages(messages)) {
     const bits: string[] = [];
     for (const part of m.parts) {
       if (part.type === "text") bits.push(part.text);

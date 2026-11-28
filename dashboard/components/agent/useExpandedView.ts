@@ -14,7 +14,10 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 // - popstate: an `rfView` naming a chain on the page expands it; an unknown chain is
 //   ignored; any other state collapses. Popstate never writes history. The first popstate
 //   after collapse()'s own back() is that back arriving, and is swallowed: back() is
-//   asynchronous, so a view expanded again before it lands is not collapsed by it.
+//   asynchronous, so a view expanded again before it lands is not collapsed by it. If no
+//   popstate comes within PENDING_BACK_MS (back() can be a no-op, for example when the
+//   browser drops the entry), the flag is cleared, so the user's next real Back is not
+//   swallowed.
 // - requestEscape() is the one Escape path, for Escape on the page and the sandbox frame's
 //   in-frame Escape alike: it collapses unless `blocked()` (a confirm card shows; it has its
 //   own Cancel). Escape on the page is also ignored when something already handled the key
@@ -25,6 +28,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 // Not deep-linkable by design: a reload shows the view inline.
 
 export const EXPANDED_HTML_CLASS = "rf-view-expanded";
+
+/** How long collapse()'s back() may take to arrive as a popstate before the page stops waiting for it. */
+export const PENDING_BACK_MS = 500;
 
 /** The chain an `rfView` history entry names, or null. History state is untrusted input. */
 function rfViewOf(state: unknown): string | null {
@@ -67,18 +73,26 @@ export function useExpandedView(opts: {
     setStored(chainId);
   }, []);
 
-  // Set while collapse()'s back() has not yet arrived as a popstate.
+  // Set while collapse()'s back() has not yet arrived as a popstate, for PENDING_BACK_MS at most.
   const pendingBack = useRef(false);
+  const pendingBackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearPendingBack = useCallback(() => {
+    pendingBack.current = false;
+    if (pendingBackTimer.current !== null) clearTimeout(pendingBackTimer.current);
+    pendingBackTimer.current = null;
+  }, []);
   const collapse = useCallback(() => {
     const current = latest.current.expandedChainId;
     if (current === null) return;
     latest.current = { ...latest.current, expandedChainId: null };
     setStored(null);
     if (rfViewOf(window.history.state) === current) {
+      clearPendingBack();
       pendingBack.current = true;
+      pendingBackTimer.current = setTimeout(clearPendingBack, PENDING_BACK_MS);
       window.history.back();
     }
-  }, []);
+  }, [clearPendingBack]);
 
   const requestEscape = useCallback(() => {
     if (latest.current.expandedChainId === null || latest.current.blocked()) return;
@@ -88,7 +102,7 @@ export function useExpandedView(opts: {
   useEffect(() => {
     const onPopState = (e: PopStateEvent) => {
       if (pendingBack.current) {
-        pendingBack.current = false;
+        clearPendingBack();
         return;
       }
       const named = rfViewOf(e.state);
@@ -110,7 +124,10 @@ export function useExpandedView(opts: {
       window.removeEventListener("popstate", onPopState);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [requestEscape]);
+  }, [requestEscape, clearPendingBack]);
+
+  // Unmount drops a pending timer (and the flag with it).
+  useEffect(() => clearPendingBack, [clearPendingBack]);
 
   const isExpanded = expandedChainId !== null;
   useEffect(() => {

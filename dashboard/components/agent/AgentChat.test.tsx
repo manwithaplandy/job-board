@@ -19,6 +19,11 @@ vi.mock("@/app/actions/agent", () => actions);
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn(), refresh: vi.fn() }) }));
 // The review indicator polls its own route; these tests count only /api/agent requests.
 vi.mock("./ReviewProgress", () => ({ ReviewProgress: () => null }));
+// Polish M9: summarizeSteps is wrapped so a test can count how often the page runs it.
+vi.mock("@/lib/agent/steps", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/agent/steps")>();
+  return { ...real, summarizeSteps: vi.fn(real.summarizeSteps) };
+});
 // The real SurfaceHost, which also records the view host its frame hands it, by surface id,
 // so a test can send the in-frame Escape a sandbox frame would send (spec 08 S6.3).
 const viewHosts = vi.hoisted(() => new Map<string, { onEscape: () => void }>());
@@ -48,6 +53,8 @@ import { sandboxChain, SURFACE_FAILED_TEXT } from "./SurfaceHost";
 import { fallbackSurface } from "@/lib/agent/surfaces/v1/fallback";
 import { VIEW_LOAD_FAILED_TEXT, ViewUpdatedStub } from "./ViewPlaceholder";
 import { CONFIRMATIONS_UNAVAILABLE } from "@/lib/agent/approvalSecret";
+import { STEPS_PENDING_LABEL, summarizeSteps } from "@/lib/agent/steps";
+import { Icon } from "@/components/ui/Icon";
 import type { ConfirmDescriptor } from "@/lib/agent/actions/intents";
 
 const THREAD = "22222222-2222-4222-8222-222222222222";
@@ -442,6 +449,66 @@ test("a stored failed reply with two steps reads Stopped after 2 steps", () => {
   render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} />);
   expect(stepsToggle().textContent).toContain("Stopped after 2 steps");
   expect(screen.getByText("This reply was interrupted")).toBeTruthy();
+});
+
+test("a stored reply still pending inside 300 s (a reload mid-turn) reads as still working, not done (polish M8)", () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+  try {
+    vi.setSystemTime(new Date("2026-11-25T12:00:00Z"));
+    const messages: UIMessage[] = [
+      { id: "u1", role: "user", parts: [{ type: "text", text: "Find roles" }], metadata: { status: "complete" } },
+      { id: "a1", role: "assistant", parts: [toolPart("search_jobs")], metadata: { status: "pending", createdAt: "2026-11-25T11:59:00Z" } },
+    ];
+    const { container } = render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} />);
+    const toggle = screen.getByRole("button", { name: STEPS_PENDING_LABEL });
+    expect(screen.queryByText(/Worked through/)).toBeNull();
+    const row = container.querySelector(".rf-steps");
+    expect(row?.classList.contains("rf-steps--pending")).toBe(true);
+    expect(row?.classList.contains("rf-steps--done")).toBe(false);
+    // No check mark, and no spinner or timer: this page is not following the run.
+    const check = render(<Icon name="check" />).container.querySelector("svg")?.innerHTML;
+    expect(toggle.querySelector(".rf-steps__icon")?.innerHTML).not.toBe(check);
+    expect(container.querySelector(".rf-steps__spinner")).toBeNull();
+    expect(container.querySelector(".rf-steps__timer")).toBeNull();
+    expect(screen.queryByText("This reply was interrupted")).toBeNull();
+    // Past the stale-turn window the same reply reads as stopped.
+    act(() => vi.advanceTimersByTime(300_000));
+    expect(stepsToggle().textContent).toContain("Stopped after 1 step");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a stored pending reply with no steps yet still shows the pending row (polish M8)", () => {
+  const fresh = new Date(Date.now() - 10_000).toISOString();
+  const messages: UIMessage[] = [
+    { id: "u1", role: "user", parts: [{ type: "text", text: "hi" }], metadata: { status: "complete" } },
+    { id: "a1", role: "assistant", parts: [], metadata: { status: "pending", createdAt: fresh } },
+  ];
+  render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} />);
+  expect(screen.getByRole("button", { name: STEPS_PENDING_LABEL })).toBeTruthy();
+});
+
+test("a clock tick does not summarise the stored replies' steps again (polish M9)", () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+  try {
+    vi.setSystemTime(new Date("2026-11-25T12:00:00Z"));
+    const messages: UIMessage[] = [
+      { id: "u1", role: "user", parts: [{ type: "text", text: "Find roles" }], metadata: { status: "complete" } },
+      { id: "a1", role: "assistant", parts: [toolPart("search_jobs"), { type: "text", text: "One." }], metadata: { status: "complete" } },
+      { id: "u2", role: "user", parts: [{ type: "text", text: "More" }], metadata: { status: "complete" } },
+      { id: "a2", role: "assistant", parts: [toolPart("get_job"), { type: "text", text: "Two." }], metadata: { status: "complete" } },
+    ];
+    render(<AgentChat threadId={THREAD} initialMessages={messages} notice={null} />);
+    const summarize = vi.mocked(summarizeSteps);
+    summarize.mockClear();
+    // Several ticks of the stale-turn clock re-render the page with a new time.
+    act(() => vi.advanceTimersByTime(60_000));
+    expect(summarize).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("button", { name: /Worked through 1 step/ })).toHaveLength(2);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test("while a turn waits for its first part, a provisional reply holds the working row and its timer", () => {
@@ -986,6 +1053,32 @@ describe("an expanded view", () => {
     expect(isInert(screen.getByText("Second."))).toBe(true);
     expect(isInert(screen.getByRole("region", { name: "Notifications alt+T" }))).toBe(false);
     expect(document.documentElement.classList.contains("rf-view-expanded")).toBe(true);
+  });
+
+  test("a commit that changes no structure re-walks nothing; a message added while expanded is made inert (polish M9)", async () => {
+    const messages = [ask("u1", "Show me"), reply("a1", [text("First."), presentPart(V1)])];
+    const props = { threadId: THREAD, title: "A thread", initialMessages: messages, notice: null, surfaces: [chainOf(hostSurface(V1, "View A"))] };
+    const { container, rerender } = render(<AgentChat {...props} fixture={{ expandedChainId: V1 }} />);
+    expect(isInert(container.querySelector(".rf-agent-toolbar")!)).toBe(true);
+    const set = vi.spyOn(Element.prototype, "setAttribute");
+    const removed = vi.spyOn(Element.prototype, "removeAttribute");
+    const inertCalls = () => [...set.mock.calls, ...removed.mock.calls].filter(([name]) => name === "inert").length;
+    try {
+      // A new commit with the same structure (what the 1 s timer tick does): no restore, no apply.
+      rerender(<AgentChat {...props} fixture={{ expandedChainId: V1 }} title="A thread, renamed" />);
+      await act(async () => {});
+      expect(inertCalls()).toBe(0);
+      // A turn appends the user's message and the reply after the expanded frame's message.
+      sendText("And another");
+      await screen.findByText("Here are two roles.");
+      await act(async () => {});
+      expect(isInert(screen.getByText("Here are two roles."))).toBe(true);
+      expect(isInert(frameOf(container, V1)!)).toBe(false);
+      expect(isInert(dock(container))).toBe(false);
+    } finally {
+      set.mockRestore();
+      removed.mockRestore();
+    }
   });
 
   test("collapsing restores what was made inert", () => {

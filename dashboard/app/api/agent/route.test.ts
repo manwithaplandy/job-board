@@ -322,6 +322,13 @@ describe("POST /api/agent: a view's ask", () => {
     expect((await POST(post({ ...ask, text: "x".repeat(280) }))).status).toBe(200);
   });
 
+  // Polish wave, M4: the text must be the normalised text the host showed beside Send.
+  test("a view's text that normalizeAskText would change is 400, with nothing started", async () => {
+    m.surfaces = [surfaceRow()];
+    await refused({ ...ask, text: "Show the Berlin\u200B jobs" }, "view_text_not_normalized");
+    await refused({ ...ask, text: "Show the  Berlin jobs " }, "view_text_not_normalized");
+  });
+
   test("a source that is not a uuid fails the strict schema", async () => {
     await refused({ ...ask, source: { kind: "view", surfaceId: "nope" } }, "bad_request");
     await refused({ ...ask, source: { kind: "view", surfaceId: SURFACE, extra: 1 } }, "bad_request");

@@ -99,6 +99,14 @@ function isUnfinished(m: UIMessage, now: number): boolean {
   return Number.isFinite(at) && now - at > AGENT_LIMITS.staleTurnMs;
 }
 
+/**
+ * A stored reply still pending inside the stale-turn window: its run may still be going on
+ * the server, but this page did not start it and cannot follow it.
+ */
+function isStillPending(m: UIMessage, now: number): boolean {
+  return m.role === "assistant" && metaOf(m)?.status === "pending" && !isUnfinished(m, now);
+}
+
 /** The last reply never finished. */
 function isInterrupted(messages: UIMessage[], now: number): boolean {
   const last = messages.at(-1);
@@ -316,6 +324,10 @@ function MessageView({
   steps: StepsView | null;
 }) {
   const who = message.role === "user" ? "You" : "Assistant";
+  // Memoised on the parts: the page re-renders every message on each clock tick (1 s while
+  // a turn runs), and a stored message's parts never change.
+  const hasSteps = steps !== null;
+  const summary = useMemo(() => (hasSteps ? summarizeSteps(message.parts) : null), [hasSteps, message.parts]);
   // Parts render in stored order. A tool call is a step, shown only in the steps row,
   // except present (its view renders where it was made) and ask_user (its questions
   // are part of the answer).
@@ -336,9 +348,8 @@ function MessageView({
     if (name === "ask_user" && askUserInputSchema.safeParse(part.input).success) return [<AskUserQuestions key={i} part={part} />];
     return [];
   });
-  const summary = steps ? summarizeSteps(message.parts) : null;
   const row =
-    steps && summary && (steps.state === "working" || summary.total > 0) ? (
+    steps && summary && (steps.state === "working" || steps.state === "pending" || summary.total > 0) ? (
       <StepsRow
         id={`steps-${message.id}`}
         summary={summary}
@@ -578,8 +589,16 @@ export function AgentChat({
   const elapsedMs = fixture?.working?.elapsedMs ?? now - (turnStartedAt ?? mountedAt);
   const stepsFor = (m: UIMessage, isLast: boolean): StepsView => {
     // "Stopped": the stored status says so (a reload after a failure), or the turn failed
-    // while the page was open.
-    const state: StepsState = isLast && working ? "working" : isUnfinished(m, now) || failedReplies.has(m.id) ? "stopped" : "done";
+    // while the page was open. "Pending": a stored reply still pending and not yet stale
+    // (a reload mid-turn) is neither done nor stopped.
+    const state: StepsState =
+      isLast && working
+        ? "working"
+        : isUnfinished(m, now) || failedReplies.has(m.id)
+          ? "stopped"
+          : isStillPending(m, now)
+            ? "pending"
+            : "done";
     return {
       state,
       elapsedMs,

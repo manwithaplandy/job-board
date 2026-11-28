@@ -9,7 +9,7 @@ import { AppShell } from "@/components/shell/AppShell";
 import { AppHeader } from "@/components/shell/AppHeader";
 import { AgentChat, StartConversation, type AgentChatFixture } from "./AgentChat";
 import { AgentPageView } from "./AgentPageView";
-import { ASK_PENDING_TEXT, type AgentPageFixtureState } from "./agentPageFixtureStates";
+import { ASK_PENDING_TEXT, CODE_CHART_STAGES, type AgentPageFixtureState } from "./agentPageFixtureStates";
 import { TestDataBadge } from "./TestDataBadge";
 import type { ThreadSummary } from "./ThreadList";
 import { FIXTURE_GATHERED, JOBS_FIXTURE_PAYLOAD, JOBS_FIXTURE_ROWS, PREP_FIXTURE_GATHERED, PREP_FIXTURE_ROWS } from "./blocks/AgentBlocksFixture";
@@ -32,6 +32,8 @@ const SURFACE_UPDATED = "00000000-0000-4000-8000-0000000000b2";
 const SURFACE_CODE = "00000000-0000-4000-8000-0000000000b3";
 // The second view of agent-page-views-multi.
 const SURFACE_SECOND = "00000000-0000-4000-8000-0000000000b4";
+// The variant 3 (code) chart view of agent-page-code-chart.
+const SURFACE_CODE_CHART = "00000000-0000-4000-8000-0000000000b5";
 const CLOCK = { now: new Date("2026-10-12T00:00:00.000Z"), frozen: true };
 
 const LONG_TITLE = "What are some jobs that would be interesting as a slight career pivot for me, given my platform background?";
@@ -198,10 +200,37 @@ export const CODE_FIXTURE_DOCUMENT: SurfacePayloadV3 = {
 </div>`,
 };
 
+// Polish wave, item A (agent-page-code-chart): a code view that draws the six application
+// stages with the kit's bar chart, so the visual suites cover kit chart text at every width.
+// The chart is drawn by the document's own script, at the top level (it needs no data), and
+// redraws itself at the frame's width.
+export const CODE_CHART_FIXTURE_DOCUMENT: SurfacePayloadV3 = {
+  variant: 3,
+  title: "Where your applications are",
+  html: `<p class="jb-secondary">Most of your 32 applications are at applied.</p>
+<div id="stages"></div>
+<script>
+host.chart(document.getElementById("stages"), { viz: "bar", title: "Applications by stage", format: "number", points: ${JSON.stringify(CODE_CHART_STAGES)} });
+</script>`,
+};
+
+const CODE_CHART_REPLY: UIMessage[] = [
+  ...CONVERSATION.slice(0, 3),
+  assistant("a2", [
+    lookup("c2", "query_metrics"),
+    { type: "text", text: "Here is where your applications are." },
+    present("c3", SURFACE_CODE_CHART, 3),
+  ]),
+];
+
 // Built the way the sandbox harness builds a case (sandboxChain over a SandboxSurface),
 // with the blocks view's payload as its stored fallback.
 const CODE_CHAINS: HostChain[] = [
   sandboxChain({ id: SURFACE_CODE, threadId: THREAD, payload: CODE_FIXTURE_DOCUMENT, gathered: FIXTURE_GATHERED, fallback: JOBS_FIXTURE_PAYLOAD, rows: JOBS_FIXTURE_ROWS }),
+];
+
+const CODE_CHART_CHAINS: HostChain[] = [
+  sandboxChain({ id: SURFACE_CODE_CHART, threadId: THREAD, payload: CODE_CHART_FIXTURE_DOCUMENT, gathered: FIXTURE_GATHERED, fallback: JOBS_FIXTURE_PAYLOAD, rows: JOBS_FIXTURE_ROWS }),
 ];
 
 const FIXTURE_SURFACE: HostSurface = {
@@ -261,6 +290,7 @@ const VARIANT_OF: Partial<Record<AgentPageFixtureState, Variant>> = {
   "agent-page-view-degraded": 2,
   "agent-page-code-expanded": 3,
   "agent-page-ask-pending": 3,
+  "agent-page-code-chart": 3,
 };
 
 const MESSAGES_OF: Partial<Record<AgentPageFixtureState, UIMessage[]>> = {
@@ -276,6 +306,7 @@ const MESSAGES_OF: Partial<Record<AgentPageFixtureState, UIMessage[]>> = {
   "agent-page-code-expanded": CODE_REPLY,
   "agent-page-views-multi": VIEWS_MULTI,
   "agent-page-ask-pending": CODE_REPLY,
+  "agent-page-code-chart": CODE_CHART_REPLY,
 };
 
 const CHAINS_OF: Partial<Record<AgentPageFixtureState, HostChain[]>> = {
@@ -288,6 +319,7 @@ const CHAINS_OF: Partial<Record<AgentPageFixtureState, HostChain[]>> = {
   "agent-page-code-expanded": CODE_CHAINS,
   "agent-page-views-multi": MULTI_CHAINS,
   "agent-page-ask-pending": CODE_CHAINS,
+  "agent-page-code-chart": CODE_CHART_CHAINS,
 };
 
 // The chat's gallery seam: a frozen working timer, one message's steps open, a view

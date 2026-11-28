@@ -26,9 +26,9 @@ vi.mock("next/navigation", () => ({
 vi.mock("./ReviewProgress", () => ({ ReviewProgress: () => null }));
 
 import { validateSurfaceV3 } from "@/lib/agent/surfaces/v3/document";
-import { AgentPageFixture, agentPageFixtureMessages, CODE_FIXTURE_DOCUMENT } from "./AgentPageFixture";
+import { AgentPageFixture, agentPageFixtureMessages, CODE_CHART_FIXTURE_DOCUMENT, CODE_FIXTURE_DOCUMENT } from "./AgentPageFixture";
 import { normalizeAskText } from "@/lib/agent/surfaces/v3/bridge";
-import { AGENT_PAGE_FIXTURE_STATES, ASK_PENDING_TEXT } from "./agentPageFixtureStates";
+import { AGENT_PAGE_FIXTURE_STATES, ASK_PENDING_TEXT, CODE_CHART_STAGES } from "./agentPageFixtureStates";
 
 beforeEach(() => {
   vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
@@ -146,6 +146,21 @@ describe("the expanded states", () => {
     expect(validateSurfaceV3(CODE_FIXTURE_DOCUMENT).ok).toBe(true);
     expect(CODE_FIXTURE_DOCUMENT.html).not.toMatch(/<script|host\.|action=|fetch|https?:/i);
   });
+});
+
+// Polish wave, item A: a code view whose document draws the six stages with the kit's bar chart.
+test("agent-page-code-chart shows a code view whose valid document draws the six stages as a kit bar chart", () => {
+  const result = validateSurfaceV3(CODE_CHART_FIXTURE_DOCUMENT);
+  expect(result.ok).toBe(true);
+  expect(CODE_CHART_FIXTURE_DOCUMENT.html).toContain('host.chart(document.getElementById("stages"), { viz: "bar"');
+  for (const stage of CODE_CHART_STAGES) expect(CODE_CHART_FIXTURE_DOCUMENT.html).toContain(`"label":"${stage.label}"`);
+  expect(CODE_CHART_FIXTURE_DOCUMENT.html).not.toMatch(/action=|host\.(action|ask)|fetch|https?:/i);
+  const { container } = render(<AgentPageFixture state="agent-page-code-chart" />);
+  const view = container.querySelector<HTMLElement>(".rf-view")!;
+  expect(view.dataset.variant).toBe("3");
+  expect(view.dataset.expanded).not.toBe("true");
+  expect(view.querySelector("iframe.rf-sandbox__frame")).not.toBeNull();
+  expect(view.getAttribute("aria-label")).toBe("View: Where your applications are");
 });
 
 // PR 4 (spec 08 S4.4): present's tool output carries no payload, so neither do the fixtures'.

@@ -171,7 +171,11 @@ describe("visual regression route inventory", () => {
       "agent-page-views-multi",
       // PR 6 (spec 08 S10.2): a view's ask pending under the view.
       "agent-page-ask-pending",
+      // Polish wave, item A: a code view's kit bar chart, its text at its CSS size at every width.
+      "agent-page-code-chart",
     ]) expect(spec).toContain(`"${state}"`);
+    expect(spec).toContain("assertChartText(page, width)");
+    expect(spec).toContain("const CHART_FRAME_WIDTHS = [320, 768, 1000, 1440] as const;");
     expect(spec).toContain("assertAskPending(page, width)");
     // Fix wave I3: a phone-width element screenshot of the inline code view, once it has painted,
     // in both specs (a full-page shot leaves a below-the-fold frame blank).

@@ -19,6 +19,7 @@ export const AGENT_PAGE_FIXTURE_STATES = [
   "agent-page-code-expanded",
   "agent-page-views-multi",
   "agent-page-ask-pending",
+  "agent-page-code-chart",
 ] as const;
 
 export type AgentPageFixtureState = (typeof AGENT_PAGE_FIXTURE_STATES)[number];
@@ -36,3 +37,18 @@ export function isAgentPageFixtureState(state: string): state is AgentPageFixtur
 const ASK_PENDING_WORDS =
   "Compare the two developer tooling matches side by side and tell me which one fits me better, what I would need to show and who to ask about ";
 export const ASK_PENDING_TEXT = (ASK_PENDING_WORDS + "SeniorProductEngineerAtAcmeSystemsRemote".repeat(4)).slice(0, 280);
+
+/**
+ * agent-page-code-chart (polish wave, item A): the six application stages the code view's kit
+ * bar chart draws. At 1000px the old chart scaled these labels to about 2.5 times the body
+ * text, and at 500px "Applied" and "Interviewing" touched. Here, in the plain module, so the
+ * browser specs can import it.
+ */
+export const CODE_CHART_STAGES = [
+  { label: "Preparing", value: 3 },
+  { label: "Ready", value: 5 },
+  { label: "Applied", value: 12 },
+  { label: "Interviewing", value: 4 },
+  { label: "Offer", value: 1 },
+  { label: "Closed", value: 7 },
+] as const;

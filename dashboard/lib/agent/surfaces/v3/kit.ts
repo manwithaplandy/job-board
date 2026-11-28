@@ -75,6 +75,10 @@
 import { KIT_TOKENS, KIT_TOKEN_NAMES, type KitTokenName } from "@/lib/agent/surfaces/v3/kitTokens";
 import { ASK_INVISIBLE_SOURCE, ASK_TEXT_MAX } from "@/lib/agent/surfaces/v3/bridge";
 
+// Polish wave, item A: the chart label size the kit's text estimate uses where the browser
+// cannot measure text (the chart labels' own CSS size, --font-size-small).
+const LABEL_FONT_PX = Number.parseFloat(KIT_TOKENS.light["--font-size-small"]);
+
 function tokenBlock(selector: string, values: Record<KitTokenName, string>): string {
   return `${selector} {\n${KIT_TOKEN_NAMES.map((n) => `  ${n}: ${values[n]};`).join("\n")}\n}\n`;
 }
@@ -150,6 +154,7 @@ jb-field input {
 .jb-chart-line { fill: none; stroke: var(--chart-stage); stroke-width: 2; }
 .jb-chart-axis { stroke: var(--chart-muted); stroke-width: 1; }
 .jb-chart-label { fill: var(--text-secondary); font-size: var(--font-size-small); }
+.jb-chart.jb-chart-probe { height: 0; overflow: hidden; visibility: hidden; }
 `;
 
 // PR 5 (spec 08 S9.5): the new chart kinds' marks, tones, legend and selectable targets.
@@ -618,7 +623,29 @@ export const KIT_JS: string = `(function () {
     return String(value);
   }
 
-  window.addEventListener("error", function (e) { report(e && e.message ? e.message : "script error"); });
+  /* Polish fix 1 (spec 08 S11): the browser's ResizeObserver loop notification is not a frame
+     error. Chrome, Edge and Firefox fire an error event on the window, with no error object,
+     when a ResizeObserver callback changes layout that another observer must then wait a frame
+     for ("ResizeObserver loop completed with undelivered notifications."; older engines
+     "ResizeObserver loop limit exceeded"). Nothing failed: the late notifications are delivered
+     in the next frame. Any view's own ResizeObserver can trip it, so an event whose error is
+     null or undefined and whose message starts with "ResizeObserver loop" is not reported; every
+     other error event is reported as before. The ErrorEvent getters are taken now, before model
+     code can replace them; an event they cannot read (not an ErrorEvent) is reported. */
+  var errorMessageOf = typeof ErrorEvent === "function" ? getterOf(ErrorEvent.prototype, "message") : null;
+  var errorValueOf = typeof ErrorEvent === "function" ? getterOf(ErrorEvent.prototype, "error") : null;
+  var RO_LOOP = "ResizeObserver loop";
+  function resizeLoopNotice(e) {
+    if (!errorMessageOf || !errorValueOf) return false;
+    try {
+      var message = errorMessageOf(e);
+      return errorValueOf(e) == null && typeof message === "string" && sliceText(message, 0, RO_LOOP.length) === RO_LOOP;
+    } catch (err) { return false; }
+  }
+  window.addEventListener("error", function (e) {
+    if (resizeLoopNotice(e)) return;
+    report(e && e.message ? e.message : "script error");
+  });
   window.addEventListener("unhandledrejection", function (e) { report(errorText(e ? e.reason : null)); });
 
   /* Task 2.7, CI run 2: tell the host at once when this document starts to leave. WebKit does
@@ -693,8 +720,10 @@ export const KIT_JS: string = `(function () {
      on WebKit with every evaluation, and Firefox reported activation with no input too), so
      isActive was true on load in all three engines. The gate is therefore the kit's own flag,
      always: set by a trusted (isTrusted) activation-triggering input event (keydown or keyup
-     other than Escape, mousedown, pointerdown, pointerup, touchend) seen in the capture phase
-     on the window before any model listener, and cleared 1,000 ms later. Script cannot make
+     of Enter or Space, mousedown, pointerdown, pointerup, touchend) seen in the capture phase
+     on the window before any model listener, and cleared 1,000 ms later. Polish wave, M2: only
+     the two keys that activate a control count, so typing in a <jb-field>, Tab, the arrows and
+     Escape do not arm it. Script cannot make
      a trusted event, and evaluation by a debugger makes none. Where the browser has
      navigator.userActivation, isActive must be true as well; its getter is taken now, from the
      object's own prototype, before model code can replace either, and a value model code later
@@ -716,7 +745,10 @@ export const KIT_JS: string = `(function () {
     try {
       /* isTrusted is an unforgeable own property of each event: page script cannot redefine it. */
       if (e.isTrusted !== true) return;
-      if ((e.type === "keydown" || e.type === "keyup") && keyOf && keyOf(e) === "Escape") return;
+      if (e.type === "keydown" || e.type === "keyup") {
+        var pressed = keyOf ? keyOf(e) : "";
+        if (pressed !== "Enter" && pressed !== " " && pressed !== "Spacebar") return;
+      }
     } catch (err) { return; }
     armed = true;
     armCount += 1;
@@ -807,63 +839,216 @@ export const KIT_JS: string = `(function () {
   /* ready goes out now, before any script of the document runs, with the port the rest of the talk uses. */
   try { parent.postMessage({ type: "ready" }, "*", [channel.port2]); } catch (err) { /* no host: nothing to do */ }
 
-  /* Inline SVG only. The SVG namespace comes from a parsed element, so no URL is written here. */
-  var svgNamespace = null;
-  function svgEl(tag, attrs) {
-    if (svgNamespace === null) {
-      var holder = document.createElement("div");
-      holder.innerHTML = "<svg></svg>";
-      svgNamespace = holder.firstChild.namespaceURI;
-    }
-    var el = document.createElementNS(svgNamespace, tag);
-    for (var k in attrs) if (Object.prototype.hasOwnProperty.call(attrs, k)) el.setAttribute(k, String(attrs[k]));
-    return el;
+  /* Inline SVG only. The SVG namespace comes from a parsed element, so no URL is written here.
+     PR 5: the namespace is read now, while the natives are still the browser's own. */
+  var svgNamespace = (function () {
+    var holder = document.createElement("div");
+    holder.innerHTML = "<svg></svg>";
+    return holder.firstChild.namespaceURI;
+  })();
+
+  /* Polish wave, item A (spec 08 S9.5): a chart is drawn in user units that are CSS px. The
+     chart's SVG used to keep a 320-unit viewBox and scale to its element, so at 1000px its text
+     was three times its CSS size. drawChart now measures the width its element gives a chart
+     and draws at that width, and each chart's ResizeObserver redraws it when the width changes,
+     so the SVG is not scaled and its text (labels, values, the donut's total) renders at its CSS
+     font size at any frame width. Each kind keeps a fixed height, so a redraw never changes the
+     document's height. Where the width cannot be measured yet (the element is hidden, or there
+     is no layout) the chart is drawn at the reference width of 320, as before, and redrawn once
+     it can be. Label widths come from the browser's own text measure on a hidden probe in the
+     same element (so the view's own CSS for chart text counts), or from an estimate where there
+     is none. Every native used here is taken now, before model code runs (S9). */
+  var CHART_REF_W = 320;
+  var CHART_MIN_W = 120;
+  var CHART_MAX_W = 4000;
+  var LABEL_FONT_PX = ${LABEL_FONT_PX};
+  var LABEL_GAP = 8;
+  var BAR_MAX_W = 112;
+  var rectOf = uncurry(Element.prototype.getBoundingClientRect);
+  var rectWidth = typeof DOMRectReadOnly === "function" ? getterOf(DOMRectReadOnly.prototype, "width") : null;
+  var textLengthNative = typeof SVGTextContentElement === "function" && typeof SVGTextContentElement.prototype.getComputedTextLength === "function"
+    ? uncurry(SVGTextContentElement.prototype.getComputedTextLength) : null;
+  var SizeWatch = typeof ResizeObserver === "function" ? ResizeObserver : null;
+  var observeSize = SizeWatch ? uncurry(SizeWatch.prototype.observe) : null;
+  var disconnectSize = SizeWatch ? uncurry(SizeWatch.prototype.disconnect) : null;
+  /* Polish fix 1 (C1, I1, m1): the chart's SVG height is pinned in CSS px through the CSSOM
+     (which the frame's CSP allows, unlike a style attribute in markup), a width-only redraw
+     swaps the SVG in place, and one chart is kept per element. */
+  var styleOfSvg = typeof SVGElement === "function" ? getterOf(SVGElement.prototype, "style") : null;
+  var setStyleProperty = typeof CSSStyleDeclaration === "function" ? uncurry(CSSStyleDeclaration.prototype.setProperty) : null;
+  var parentOf = getterOf(Node.prototype, "parentNode");
+  var nextSiblingOf = getterOf(Node.prototype, "nextSibling");
+  var chartsOn = typeof WeakMap === "function" ? new WeakMap() : null;
+  var chartOnGet = chartsOn ? uncurry(WeakMap.prototype.get) : null;
+  var chartOnSet = chartsOn ? uncurry(WeakMap.prototype.set) : null;
+  function widthOf(el) {
+    var w = 0;
+    try {
+      var r = rectOf(el);
+      try { w = rectWidth(r); } catch (err) { w = r ? r.width : 0; }
+    } catch (err) { w = 0; }
+    return typeof w === "number" && finite(w) && w > 0 ? w : 0;
   }
-  /* PR 5: the namespace is read now, while the natives are still the browser's own. */
-  svgEl("g", {});
+  /* The width a chart is drawn at for an element w CSS px wide (0: not measured). */
+  function chartWidthFor(w) {
+    return w > 0 ? M.min(CHART_MAX_W, M.max(CHART_MIN_W, M.round(w * 10) / 10)) : CHART_REF_W;
+  }
+  /* A hidden SVG in the element: its width is the width a chart there gets (the chart's SVG is
+     width: 100%), and its text measures label widths with the chart's own classes. */
+  function chartProbe(el, before) {
+    var svg = svgNode("svg", { "class": "jb-chart jb-chart-probe", "aria-hidden": "true" });
+    var text = svgNode("text", { x: 0, y: 0, "class": "jb-chart-label" });
+    appendTo(svg, text);
+    if (before) insertInto(el, svg, before); else appendTo(el, svg);
+    var width = widthOf(svg);
+    var cache = {};
+    function measure(s) {
+      var key = "k" + s;
+      if (hasOwn(cache, key)) return cache[key];
+      var n = 0;
+      if (textLengthNative && width > 0) {
+        try { setText(text, s); n = textLengthNative(text); } catch (err) { n = 0; }
+      }
+      if (!(typeof n === "number" && finite(n) && n > 0)) n = s.length * LABEL_FONT_PX * 0.6;
+      cache[key] = n;
+      return n;
+    }
+    return { svg: svg, width: width, measure: measure };
+  }
+  /* s cut to its first n UTF-16 units, never inside a surrogate pair, without trailing space. */
+  function cutAt(s, n) {
+    if (n > 0 && n < s.length) {
+      var u = codeUnitAt(s, n - 1);
+      if (u >= 0xd800 && u <= 0xdbff) n -= 1;
+    }
+    return trimText(sliceText(s, 0, n));
+  }
+  /* s, or s cut with an ellipsis to fit room CSS px; kept is how many units of s are shown. */
+  function cutText(s, room, measure) {
+    if (measure(s) <= room) return { text: s, kept: s.length, cut: false };
+    var lo = 0;
+    var hi = s.length - 1;
+    while (lo < hi) {
+      var mid = M.floor((lo + hi + 1) / 2);
+      if (measure(cutAt(s, mid) + "\\u2026") <= room) lo = mid; else hi = mid - 1;
+    }
+    var shown = lo > 0 ? cutAt(s, lo) : "";
+    return { text: shown === "" ? "" : shown + "\\u2026", kept: shown.length, cut: true };
+  }
+  /* Category labels under the plot. Text is drawn at its CSS size, so whether labels fit is
+     decided in CSS px, with LABEL_GAP between neighbours and none past the chart's edges:
+     one row of every label if they fit; else two staggered rows (each label then has two
+     slots); else every k-th label in two rows, k the smallest that leaves each shown label at
+     least four characters, each cut with an ellipsis to its room. A cut label keeps its full
+     text in a <title>, and every label is in the hidden table either way. */
+  function labelPlan(labels, step, W, measure) {
+    var n = labels.length;
+    function centre(i) { return step * i + step / 2; }
+    function layout(every, rows, texts) {
+      var out = [];
+      var right = [-1e9, -1e9];
+      for (var i = 0, j = 0; i < n; i += every, j++) {
+        var w = measure(texts[i]);
+        if (w > W) return null;
+        var x = M.max(w / 2, M.min(W - w / 2, centre(i)));
+        var row = rows === 2 ? j % 2 : 0;
+        if (texts[i] !== "" && x - w / 2 < right[row] + LABEL_GAP) return null;
+        if (texts[i] !== "") right[row] = x + w / 2;
+        out[out.length] = { index: i, x: x, row: row, text: texts[i], full: texts[i] === labels[i] ? null : labels[i] };
+      }
+      return { rows: rows, every: every, items: out };
+    }
+    if (n === 0) return { rows: 1, every: 1, items: [] };
+    var plan = layout(1, 1, labels) || layout(1, 2, labels);
+    if (plan) return plan;
+    for (var every = 1; every <= n; every++) {
+      if (every > 1) {
+        plan = layout(every, 2, labels);
+        if (plan) return plan;
+      }
+      /* Each shown label's room: two of its slots, less the gap; less near an edge, where the
+         label cannot be centred on its slot and moves in towards its neighbour. */
+      var room = M.min(W, 2 * every * step - LABEL_GAP);
+      var texts = [];
+      var ok = true;
+      for (var i = 0; i < n; i++) {
+        if (i % every !== 0) { texts[i] = labels[i]; continue; }
+        var edge = M.min(centre(i), W - centre(i)) + every * step - LABEL_GAP / 2;
+        var c = cutText(labels[i], M.min(room, edge), measure);
+        if (c.kept < M.min(4, labels[i].length)) { ok = false; break; }
+        texts[i] = c.text;
+      }
+      if (!ok) continue;
+      plan = layout(every, 2, texts);
+      if (plan) return plan;
+    }
+    var only = cutText(labels[0], W, measure);
+    return { rows: 1, every: n, items: [{ index: 0, x: W / 2, row: 0, text: only.text, full: only.cut ? labels[0] : null }] };
+  }
+  /* The base line's y and the labels' baselines for a plan, in a chart H units tall. */
+  function labelBand(plan, H) {
+    var two = plan !== null && plan.rows === 2;
+    return { base: two ? H - 38 : H - 24, rowY: two ? [H - 20, H - 6] : [H - 6, H - 6] };
+  }
+  function drawLabels(svg, plan, band, legacy) {
+    for (var i = 0; i < plan.items.length; i++) {
+      var p = plan.items[i];
+      if (p.text === "") continue;
+      var y = band.rowY[p.row];
+      var t = svgNode("text", { x: fx(p.x), y: legacy ? textOf(y) : fx(y), "text-anchor": "middle", "class": "jb-chart-label" });
+      setText(t, p.text);
+      if (p.full !== null) tip(t, p.full);
+      appendTo(svg, t);
+    }
+  }
+  /* A bar's width and left inset in a slot step wide: 70% of the slot, at most BAR_MAX_W. */
+  function barFit(step) {
+    var w = step * 0.7;
+    return w > BAR_MAX_W ? { width: BAR_MAX_W, inset: (step - BAR_MAX_W) / 2 } : { width: w, inset: step * 0.15 };
+  }
+
   /* bar, line and sparkline (and the bar drawing any other unknown viz name falls back to):
-     the drawing as it was before PR 5, unchanged for the same input, so stored documents
-     render as before (kit.behaviour.test.ts holds the snapshots). PR 5 adds, beside it, the
-     hidden data table, and with onSelect a target per point. */
-  function legacyChart(spec, fmt) {
-    var raw = Array.isArray(spec.points) ? spec.points.slice(0, CHART_POINTS_MAX) : [];
+     at the reference width, with labels that fit one row, the drawing is the one from before
+     PR 5, unchanged for the same input, so stored documents render as before
+     (kit.behaviour.test.ts holds the snapshots). Polish wave, item A: at any other width it is
+     drawn at that width, bars stop growing at BAR_MAX_W, and labels that would touch are
+     staggered, thinned or cut (labelPlan). PR 5 adds, beside it, the hidden data table, and
+     with onSelect a target per point. */
+  function legacyChart(spec, fmt, g) {
+    var raw = isList(spec.points) ? sliceList(spec.points, 0, CHART_POINTS_MAX) : [];
     var points = [];
     var max = 0;
     for (var i = 0; i < raw.length; i++) {
       var p = raw[i] && typeof raw[i] === "object" ? raw[i] : {};
-      var v = typeof p.value === "number" && isFinite(p.value) && p.value > 0 ? p.value : 0;
+      var v = typeof p.value === "number" && finite(p.value) && p.value > 0 ? p.value : 0;
       if (v > max) max = v;
-      points.push({ label: clip(p.label, LABEL_MAX), value: v });
+      points[points.length] = { label: clip(p.label, LABEL_MAX), value: v };
     }
     if (max <= 0) max = 1;
-    var W = 320, H = 160, BASE = 136, PLOT = 124;
-    var svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "class": "jb-chart", "aria-label": clip(spec.title || "Chart", 80) });
-    svg.appendChild(svgEl("line", { x1: 0, y1: BASE, x2: W, y2: BASE, "class": "jb-chart-axis" }));
-    var n = Math.max(points.length, 1);
+    var W = g.W, H = 160;
+    var n = M.max(points.length, 1);
     var step = W / n;
+    var labels = [];
+    for (var l = 0; l < points.length; l++) labels[l] = points[l].label;
+    var plan = spec.viz === "sparkline" ? null : labelPlan(labels, step, W, g.measure);
+    var band = labelBand(plan, H);
+    var BASE = band.base, PLOT = BASE - 12;
+    var svg = chartSvg(W, H, spec.title);
+    appendTo(svg, svgNode("line", { x1: 0, y1: BASE, x2: W, y2: BASE, "class": "jb-chart-axis" }));
     if (spec.viz === "line" || spec.viz === "sparkline") {
       var coords = [];
-      for (var j = 0; j < points.length; j++) {
-        coords.push((step * j + step / 2).toFixed(1) + "," + (BASE - (points[j].value / max) * PLOT).toFixed(1));
-      }
-      svg.appendChild(svgEl("polyline", { points: coords.join(" "), "class": "jb-chart-line" }));
+      for (var j = 0; j < points.length; j++) coords[j] = fx(step * j + step / 2) + "," + fx(BASE - (points[j].value / max) * PLOT);
+      appendTo(svg, svgNode("polyline", { points: joinList(coords, " "), "class": "jb-chart-line" }));
     } else {
+      var fit = barFit(step);
       for (var b = 0; b < points.length; b++) {
         var h = (points[b].value / max) * PLOT;
-        var bar = svgEl("rect", { x: (step * b + step * 0.15).toFixed(1), y: (BASE - h).toFixed(1), width: (step * 0.7).toFixed(1), height: h.toFixed(1), "class": "jb-chart-bar" });
-        var tip = svgEl("title", {});
-        tip.textContent = points[b].label + ": " + points[b].value;
-        bar.appendChild(tip);
-        svg.appendChild(bar);
+        var bar = svgNode("rect", { x: fx(step * b + fit.inset), y: fx(BASE - h), width: fx(fit.width), height: fx(h), "class": "jb-chart-bar" });
+        tip(bar, points[b].label + ": " + points[b].value);
+        appendTo(svg, bar);
       }
     }
-    if (spec.viz !== "sparkline") {
-      for (var t = 0; t < points.length; t++) {
-        var text = svgEl("text", { x: (step * t + step / 2).toFixed(1), y: H - 6, "text-anchor": "middle", "class": "jb-chart-label" });
-        text.textContent = points[t].label;
-        svg.appendChild(text);
-      }
-    }
+    if (plan) drawLabels(svg, plan, band, true);
     var onSelect = typeof spec.onSelect === "function" ? spec.onSelect : null;
     var rows = [];
     for (var r = 0; r < points.length; r++) {
@@ -906,6 +1091,13 @@ export const KIT_JS: string = `(function () {
     setText(t, text);
     return t;
   }
+  /* A label cut to room CSS px, with its full text as a tooltip when it was cut. */
+  function fittedText(x, y, text, anchor, room, measure) {
+    var c = cutText(text, M.max(room, 0), measure);
+    var t = svgText(x, y, c.text, anchor);
+    if (c.cut) tip(t, text);
+    return t;
+  }
   function tip(el, text) {
     var t = svgNode("title", {});
     setText(t, text);
@@ -915,9 +1107,9 @@ export const KIT_JS: string = `(function () {
     return (info.series ? info.series + ", " : "") + info.label + ": " + fmt(info.value);
   }
   /* With onSelect, each mark gets a native button in a row under the chart (S12: an SVG mark
-     scales with the frame, so it cannot promise 44px; the button can). The button answers
-     click, Enter and Space as any button does; the drawn mark still answers a pointer. Each
-     calls onSelect with a fresh { label, value, series, index }. */
+     is not a 44px target; the button is). The button answers click, Enter and Space as any
+     button does; the drawn mark still answers a pointer. Each calls onSelect with a fresh
+     { label, value, series, index }. */
   var chartPicks = null;
   function selectable(mark, info, onSelect, fmt) {
     function fire() { onSelect({ label: info.label, value: info.value, series: info.series, index: info.index }); }
@@ -1012,32 +1204,46 @@ export const KIT_JS: string = `(function () {
     for (var i = 0; i < series.length; i++) out[out.length] = { name: series[i].name, tone: series[i].tone };
     return out;
   }
-  /* Category labels along the base, at most 12 shown. */
-  function baseLabels(svg, labels, step, y) {
-    var every = M.max(1, M.floor((labels.length + 11) / 12));
-    for (var i = 0; i < labels.length; i += every) appendTo(svg, svgText(step * i + step / 2, y, labels[i], "middle"));
-  }
-  function chartSvg(w, h, title, onSelect) {
-    return svgNode("svg", { viewBox: "0 0 " + w + " " + h, role: "img", "class": "jb-chart", "aria-label": clip(title || "Chart", 80) });
+  /* Polish fix 1 (C1): the SVG's height is pinned in CSS px, so a width change never changes
+     the chart's height, before or after the redraw it schedules: until the redraw lands, the
+     stale drawing is letterboxed (preserveAspectRatio), not stretched to a new height. */
+  function chartSvg(w, h, title) {
+    var svg = svgNode("svg", { viewBox: "0 0 " + textOf(w) + " " + textOf(h), role: "img", "class": "jb-chart", "aria-label": clip(title || "Chart", 80), preserveAspectRatio: "xMidYMid meet" });
+    if (styleOfSvg && setStyleProperty) {
+      try { setStyleProperty(styleOfSvg(svg), "height", textOf(h) + "px"); } catch (err) { /* height: auto, as before */ }
+    }
+    return svg;
   }
 
-  function drawHbar(spec, fmt, onSelect) {
+  /* hbar: the label column is as wide as the widest label (at most 40% of the chart), the
+     value column as wide as the widest value; labels that do not fit are cut. Polish fix 1
+     (m4): a value is never cut (a cut number reads as another number), so the value column
+     always holds the widest formatted value and the bars and labels take what is left. */
+  function drawHbar(spec, fmt, onSelect, g) {
     var series = sliceList(chartSeries(spec), 0, 1);
     var pts = series[0].points;
-    var W = 320, LABEL_W = 112, VALUE_W = 52, BAR_H = 16;
+    var W = g.W, BAR_H = 16;
     var rowH = onSelect ? 48 : 28;
     var H = M.max(pts.length, 1) * rowH + 8;
-    var svg = chartSvg(W, H, spec.title, onSelect);
+    var svg = chartSvg(W, H, spec.title);
     var max = 0;
-    for (var i = 0; i < pts.length; i++) if (pts[i].value > max) max = pts[i].value;
+    var labelW = 0;
+    var valueW = 0;
+    for (var i = 0; i < pts.length; i++) {
+      if (pts[i].value > max) max = pts[i].value;
+      labelW = M.max(labelW, g.measure(pts[i].label));
+      valueW = M.max(valueW, g.measure(fmt(pts[i].value)));
+    }
     if (max <= 0) max = 1;
+    var VALUE_W = valueW + 8;
+    var LABEL_W = M.min(M.max(labelW + LABEL_GAP, 48), M.max(48, M.round(W * 0.4)), M.max(W - VALUE_W, 0));
     for (var r = 0; r < pts.length; r++) {
       var v = M.max(pts[r].value, 0);
       var y = 4 + r * rowH;
       var by = y + (rowH - BAR_H) / 2;
-      var w = (v / max) * (W - LABEL_W - VALUE_W);
+      var w = (v / max) * M.max(W - LABEL_W - VALUE_W, 0);
       var info = { label: pts[r].label, value: pts[r].value, series: null, index: r };
-      appendTo(svg, svgText(0, by + 12, clip(pts[r].label, 18), "start"));
+      appendTo(svg, fittedText(0, by + 12, pts[r].label, "start", LABEL_W - LABEL_GAP, g.measure));
       var bar = svgNode("rect", { x: LABEL_W, y: fx(by), width: fx(w), height: BAR_H, "class": "jb-chart-mark jb-tone-" + toneOf(pts[r].tone, 0) });
       tip(bar, describePoint(info, fmt));
       appendTo(svg, bar);
@@ -1052,12 +1258,16 @@ export const KIT_JS: string = `(function () {
     return { svg: svg, legend: null, head: table.head, rows: table.rows };
   }
 
-  function drawStacked(spec, fmt, onSelect) {
+  function drawStacked(spec, fmt, onSelect, g) {
     var series = chartSeries(spec);
     var cats = chartCategories(series);
     var n = cats.labels.length;
-    var W = 320, H = 160, BASE = 136, PLOT = 124;
-    var svg = chartSvg(W, H, spec.title, onSelect);
+    var W = g.W, H = 160;
+    var step = W / M.max(n, 1);
+    var plan = labelPlan(cats.labels, step, W, g.measure);
+    var band = labelBand(plan, H);
+    var BASE = band.base, PLOT = BASE - 12;
+    var svg = chartSvg(W, H, spec.title);
     appendTo(svg, svgNode("line", { x1: 0, y1: BASE, x2: W, y2: BASE, "class": "jb-chart-axis" }));
     var max = 0;
     for (var c = 0; c < n; c++) {
@@ -1066,7 +1276,7 @@ export const KIT_JS: string = `(function () {
       if (total > max) max = total;
     }
     if (max <= 0) max = 1;
-    var step = W / M.max(n, 1);
+    var fit = barFit(step);
     for (var k = 0; k < n; k++) {
       var y = BASE;
       for (var t = 0; t < series.length; t++) {
@@ -1075,24 +1285,22 @@ export const KIT_JS: string = `(function () {
         var h = (cell.value / max) * PLOT;
         y -= h;
         var tone = series.length === 1 ? toneOf(series[t].points[cell.index].tone, 0) : series[t].tone;
-        var seg = svgNode("rect", { x: fx(step * k + step * 0.15), y: fx(y), width: fx(step * 0.7), height: fx(h), "class": "jb-chart-mark jb-tone-" + tone });
+        var seg = svgNode("rect", { x: fx(step * k + fit.inset), y: fx(y), width: fx(fit.width), height: fx(h), "class": "jb-chart-mark jb-tone-" + tone });
         var info = { label: cats.labels[k], value: cell.value, series: series[t].name, index: cell.index };
         tip(seg, describePoint(info, fmt));
         if (onSelect) selectable(seg, info, onSelect, fmt);
         appendTo(svg, seg);
       }
     }
-    baseLabels(svg, cats.labels, step, H - 6);
+    drawLabels(svg, plan, band, false);
     var table = seriesTable(series, cats, fmt);
     return { svg: svg, legend: legendOf(series), head: table.head, rows: table.rows };
   }
 
-  function drawArea(spec, fmt, onSelect) {
+  function drawArea(spec, fmt, onSelect, g) {
     var series = chartSeries(spec);
     var cats = chartCategories(series);
-    var W = 320, H = 160, BASE = 136, PLOT = 124;
-    var svg = chartSvg(W, H, spec.title, onSelect);
-    appendTo(svg, svgNode("line", { x1: 0, y1: BASE, x2: W, y2: BASE, "class": "jb-chart-axis" }));
+    var W = g.W, H = 160;
     var longest = 0;
     var max = 0;
     for (var s = 0; s < series.length; s++) {
@@ -1101,6 +1309,13 @@ export const KIT_JS: string = `(function () {
     }
     if (max <= 0) max = 1;
     var step = W / M.max(series[longest].points.length, 1);
+    var labels = [];
+    for (var b = 0; b < series[longest].points.length; b++) labels[b] = series[longest].points[b].label;
+    var plan = labelPlan(labels, step, W, g.measure);
+    var band = labelBand(plan, H);
+    var BASE = band.base, PLOT = BASE - 12;
+    var svg = chartSvg(W, H, spec.title);
+    appendTo(svg, svgNode("line", { x1: 0, y1: BASE, x2: W, y2: BASE, "class": "jb-chart-axis" }));
     for (var t = 0; t < series.length; t++) {
       var pts = series[t].points;
       if (pts.length === 0) continue;
@@ -1119,14 +1334,12 @@ export const KIT_JS: string = `(function () {
         appendTo(svg, mark);
       }
     }
-    var labels = [];
-    for (var b = 0; b < series[longest].points.length; b++) labels[b] = series[longest].points[b].label;
-    baseLabels(svg, labels, step, H - 6);
+    drawLabels(svg, plan, band, false);
     var table = seriesTable(series, cats, fmt);
     return { svg: svg, legend: legendOf(series), head: table.head, rows: table.rows };
   }
 
-  function drawScatter(spec, fmt, onSelect) {
+  function drawScatter(spec, fmt, onSelect, g) {
     var raw = isList(spec.xy) ? spec.xy : [];
     var pts = [];
     for (var i = 0; i < raw.length && i < CHART_TOTAL_MAX; i++) {
@@ -1134,8 +1347,6 @@ export const KIT_JS: string = `(function () {
       if (!isNum(p.x) || !isNum(p.y)) continue;
       pts[pts.length] = { x: p.x, y: p.y, label: p.label == null ? "" : clip(p.label, LABEL_MAX), tone: toneOf(p.tone, 0) };
     }
-    var W = 320, H = 160, L = 44, R = W - 8, T = 8, B = 124;
-    var svg = chartSvg(W, H, spec.title, onSelect);
     var x0 = 0, x1 = 1, y0 = 0, y1 = 1;
     if (pts.length > 0) {
       x0 = x1 = pts[0].x;
@@ -1147,6 +1358,10 @@ export const KIT_JS: string = `(function () {
       if (x0 === x1) { x0 -= 1; x1 += 1; }
       if (y0 === y1) { y0 -= 1; y1 += 1; }
     }
+    /* The y axis sits right of its widest tick label (and of the turned y label, if any). */
+    var tickW = M.max(g.measure(fmt(y0)), g.measure(fmt(y1)));
+    var W = g.W, H = 160, L = M.max(44, M.round(tickW + 8 + (spec.yLabel ? 16 : 0))), R = W - 8, T = 8, B = 124;
+    var svg = chartSvg(W, H, spec.title);
     function sx(v) { return L + ((v - x0) / (x1 - x0)) * (R - L); }
     function sy(v) { return B - ((v - y0) / (y1 - y0)) * (B - T); }
     appendTo(svg, svgNode("line", { x1: L, y1: B, x2: R, y2: B, "class": "jb-chart-axis" }));
@@ -1157,9 +1372,9 @@ export const KIT_JS: string = `(function () {
     appendTo(svg, svgText(L - 4, T + 8, fmt(y1), "end"));
     var xLabel = spec.xLabel == null || spec.xLabel === "" ? "x" : clip(spec.xLabel, LABEL_MAX);
     var yLabel = spec.yLabel == null || spec.yLabel === "" ? "y" : clip(spec.yLabel, LABEL_MAX);
-    if (spec.xLabel) appendTo(svg, svgText((L + R) / 2, H - 4, xLabel, "middle"));
+    if (spec.xLabel) appendTo(svg, fittedText((L + R) / 2, H - 4, xLabel, "middle", R - L, g.measure));
     if (spec.yLabel) {
-      var yl = svgText(0, 0, yLabel, "middle");
+      var yl = fittedText(0, 0, yLabel, "middle", B - T, g.measure);
       setAttr(yl, "transform", "translate(10 " + fx((T + B) / 2) + ") rotate(-90)");
       appendTo(svg, yl);
     }
@@ -1186,13 +1401,32 @@ export const KIT_JS: string = `(function () {
     return "M " + at(R, a0) + " A " + R + " " + R + " 0 " + large + " 1 " + at(R, a1) +
       " L " + at(r, a1) + " A " + r + " " + r + " 0 " + large + " 0 " + at(r, a0) + " Z";
   }
-  function drawDonut(spec, fmt, onSelect) {
+  /* donut: the ring at the left, the keys to its right, each cut to the room left. Polish fix
+     1 (I2): where that room (W - 196) cannot hold every key with at least four characters of
+     its label and its percentage, the SVG draws no keys and the chart has an HTML legend under
+     the ring instead (chartLegend), which wraps; so a narrow donut never shows bare swatches
+     or keys cut to a letter or two. */
+  var DONUT_KEY_X = 192;
+  function donutKeyText(label, share) {
+    return clip(label, 16) + " " + fmtPercent(share);
+  }
+  function drawDonut(spec, fmt, onSelect, g) {
     var series = sliceList(chartSeries(spec), 0, 1);
     var pts = series[0].points;
-    var W = 320, H = 160, CX = 80, CY = 80, R = 72, RI = 44;
-    var svg = chartSvg(W, H, spec.title, onSelect);
+    var W = g.W, H = 160, CX = 80, CY = 80, R = 72, RI = 44;
+    var svg = chartSvg(W, H, spec.title);
     var total = 0;
     for (var i = 0; i < pts.length; i++) if (pts[i].value > 0) total += pts[i].value;
+    var room = W - DONUT_KEY_X - 4;
+    var keysFit = true;
+    var legend = [];
+    for (var m = 0, shown = 0; m < pts.length && shown < 8; m++) {
+      if (!(pts[m].value > 0) || total <= 0) continue;
+      shown += 1;
+      var label = clip(pts[m].label, 16);
+      var shortest = (label.length > 4 ? cutAt(label, 4) + "\\u2026" : label) + " " + fmtPercent(pts[m].value / total);
+      if (g.measure(shortest) > room) keysFit = false;
+    }
     var a = -M.PI / 2;
     var keys = 0;
     for (var k = 0; k < pts.length; k++) {
@@ -1206,17 +1440,19 @@ export const KIT_JS: string = `(function () {
       if (onSelect) selectable(slice, info, onSelect, fmt);
       appendTo(svg, slice);
       a = b;
-      if (keys < 8) {
+      if (!keysFit) {
+        legend[legend.length] = { name: pts[k].label + " " + fmtPercent(v / total), tone: tone };
+      } else if (keys < 8) {
         var ky = 20 + keys * 18;
         appendTo(svg, svgNode("rect", { x: 176, y: ky - 9, width: 10, height: 10, rx: 2, "class": "jb-chart-key jb-tone-" + tone }));
-        appendTo(svg, svgText(192, ky, clip(pts[k].label, 16) + " " + fmtPercent(v / total), "start"));
+        appendTo(svg, fittedText(DONUT_KEY_X, ky, donutKeyText(pts[k].label, v / total), "start", room, g.measure));
         keys += 1;
       }
     }
     if (total <= 0) appendTo(svg, svgNode("circle", { cx: CX, cy: CY, r: (R + RI) / 2, "class": "jb-chart-ring" }));
     appendTo(svg, svgText(CX, CY + 5, fmt(total), "middle", "jb-chart-total"));
     var table = seriesTable(series, chartCategories(series), fmt);
-    return { svg: svg, legend: null, head: table.head, rows: table.rows };
+    return { svg: svg, legend: legend.length > 0 ? legend : null, head: table.head, rows: table.rows };
   }
 
   function chartTable(title, head, rows) {
@@ -1260,45 +1496,135 @@ export const KIT_JS: string = `(function () {
     var c;
     while ((c = firstChildOf(el))) removeFrom(el, c);
   }
+  /* Draws spec into el at the width el gives it; returns what was drawn and at what width
+     (measured false: the width could not be read, so the reference width was used). */
   function drawChart(el, spec) {
     spec = spec && typeof spec === "object" ? spec : {};
     var fmt = formatterOf(spec.format);
     var onSelect = typeof spec.onSelect === "function" ? spec.onSelect : null;
+    clearNode(el);
+    var probe = chartProbe(el, null);
+    var g = { W: chartWidthFor(probe.width), measure: probe.measure };
     var out;
     var picks = [];
     chartPicks = picks;
     try {
-      out = drawOne(spec, fmt, onSelect);
+      out = drawOne(spec, fmt, onSelect, g);
     } finally {
       chartPicks = null;
+      removeFrom(el, probe.svg);
     }
     var title = clip(spec.title || "Chart", 80);
-    clearNode(el);
     appendTo(el, out.svg);
-    if (out.legend) appendTo(el, chartLegend(out.legend));
+    var legend = out.legend ? chartLegend(out.legend) : null;
+    if (legend) appendTo(el, legend);
     if (picks.length > 0) appendTo(el, picksRow(title, picks));
     appendTo(el, chartTable(title, out.head, out.rows));
+    return { svg: out.svg, legend: legend, W: g.W, measured: probe.width > 0 };
   }
-  function drawOne(spec, fmt, onSelect) {
+  /* Polish fix 1 (I1): a redraw for a new width replaces the SVG alone. The legend, the 44px
+     button row and the hidden table do not depend on the width, so they stay the same
+     elements, and a button that has focus (or is being pressed) keeps it. The one exception is
+     the donut's HTML legend, which is there only while the keys do not fit beside the ring: it
+     is added or removed as the width calls for. Where the drawn SVG is no longer el's child
+     (model code moved it), the chart is drawn afresh. */
+  function redrawForWidth(el, spec, drawn) {
+    if (parentOf(drawn.svg) !== el || (drawn.legend && parentOf(drawn.legend) !== el)) return drawChart(el, spec);
+    spec = spec && typeof spec === "object" ? spec : {};
+    var fmt = formatterOf(spec.format);
+    var onSelect = typeof spec.onSelect === "function" ? spec.onSelect : null;
+    var probe = chartProbe(el, drawn.svg);
+    var g = { W: chartWidthFor(probe.width), measure: probe.measure };
     var out;
-    if (spec.viz === "hbar") out = drawHbar(spec, fmt, onSelect);
-    else if (spec.viz === "stacked") out = drawStacked(spec, fmt, onSelect);
-    else if (spec.viz === "area") out = drawArea(spec, fmt, onSelect);
-    else if (spec.viz === "scatter") out = drawScatter(spec, fmt, onSelect);
-    else if (spec.viz === "donut") out = drawDonut(spec, fmt, onSelect);
-    else out = legacyChart(spec, fmt);
+    chartPicks = null;
+    try {
+      out = drawOne(spec, fmt, onSelect, g);
+    } finally {
+      removeFrom(el, probe.svg);
+    }
+    insertInto(el, out.svg, drawn.svg);
+    removeFrom(el, drawn.svg);
+    var legend = drawn.legend;
+    if (out.legend && !legend) {
+      legend = chartLegend(out.legend);
+      insertInto(el, legend, nextSiblingOf(out.svg));
+    } else if (!out.legend && legend) {
+      removeFrom(el, legend);
+      legend = null;
+    }
+    return { svg: out.svg, legend: legend, W: g.W, measured: probe.width > 0 };
+  }
+  function drawOne(spec, fmt, onSelect, g) {
+    var out;
+    if (spec.viz === "hbar") out = drawHbar(spec, fmt, onSelect, g);
+    else if (spec.viz === "stacked") out = drawStacked(spec, fmt, onSelect, g);
+    else if (spec.viz === "area") out = drawArea(spec, fmt, onSelect, g);
+    else if (spec.viz === "scatter") out = drawScatter(spec, fmt, onSelect, g);
+    else if (spec.viz === "donut") out = drawDonut(spec, fmt, onSelect, g);
+    else out = legacyChart(spec, fmt, g);
     return out;
   }
   /* host.chart(el, spec) -> { update(spec), destroy() }: update redraws into the same
-     element; destroy empties it, and nothing draws there afterwards. */
+     element; destroy empties it, and nothing draws there afterwards. Polish wave, item A: a
+     ResizeObserver on el redraws the chart when the width it would get changes (or first
+     becomes measurable), and destroy disconnects it.
+     Polish fix 1 (C1): the redraw never runs inside the observer's callback, where changing
+     layout makes the browser raise its "ResizeObserver loop" error. The callback only
+     schedules one redraw per chart with the kit's captured timer; notifications that arrive
+     before it runs add nothing. When it runs it checks again that the chart is live and that
+     the width it would get has changed, then draws the current spec (an update() in between
+     is drawn). The SVG's height is pinned (chartSvg), so neither the width change nor the
+     redraw changes the chart's height.
+     m1: one chart per element. host.chart on an element that already has one retires the
+     earlier chart (its observer is disconnected, its handle does nothing more), as a view that
+     draws again into the same element without destroy() expects. */
   var NO_CHART = freeze({ update: function () {}, destroy: function () {} });
   function chart(el, spec) {
     if (!el || typeof el.appendChild !== "function" || !isElement(el)) return NO_CHART;
+    if (chartsOn) {
+      var earlier;
+      try { earlier = chartOnGet(chartsOn, el); } catch (err) { earlier = null; }
+      if (typeof earlier === "function") earlier();
+    }
     var live = true;
-    drawChart(el, spec);
+    var current = spec;
+    var drawn = drawChart(el, current);
+    var watcher = null;
+    var queued = false;
+    function retire() {
+      live = false;
+      if (watcher) { try { disconnectSize(watcher); } catch (err) { /* nothing more to do */ } }
+    }
+    function resized() {
+      queued = false;
+      if (!live) return;
+      var w = widthOf(drawn.svg);
+      if (w <= 0) return;
+      if (drawn.measured && chartWidthFor(w) === drawn.W) return;
+      try { drawn = redrawForWidth(el, current, drawn); } catch (err) { report(errorText(err)); }
+    }
+    if (SizeWatch) {
+      try {
+        watcher = new SizeWatch(function () {
+          if (!live || queued) return;
+          queued = true;
+          try { queueTask(resized, 0); } catch (err) { queued = false; }
+        });
+        observeSize(watcher, el);
+      } catch (err) { watcher = null; }
+    }
+    if (chartsOn) { try { chartOnSet(chartsOn, el, retire); } catch (err) { /* one chart per call, as before */ } }
     return freeze({
-      update: function (next) { if (live) drawChart(el, next); },
-      destroy: function () { live = false; clearNode(el); }
+      update: function (next) {
+        if (!live) return;
+        current = next;
+        drawn = drawChart(el, current);
+      },
+      destroy: function () {
+        if (!live) return;
+        retire();
+        clearNode(el);
+      }
     });
   }
 

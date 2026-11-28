@@ -6,7 +6,7 @@
 // Strict objects: an extra key (a `userId`, client-sent message parts, history) is a
 // 400, never silently dropped. The user id always comes from the server session.
 import { z } from "zod";
-import { ASK_TEXT_MAX } from "@/lib/agent/surfaces/v3/bridge";
+import { ASK_TEXT_MAX, normalizeAskText } from "@/lib/agent/surfaces/v3/bridge";
 
 export const AGENT_TEXT_MAX = 8000;
 export const AGENT_MESSAGE_ID_MAX = 64;
@@ -34,18 +34,23 @@ export function isViewMessageId(id: string): boolean {
 /**
  * The pairing of a view id and a source (plan D7, checked by the route): a view id needs a
  * source, a source needs a view id, and a view message's text is at most ASK_TEXT_MAX code
- * points (the ask's own cap, tighter than AGENT_TEXT_MAX). Null when the request is fine.
+ * points (the ask's own cap, tighter than AGENT_TEXT_MAX). Polish wave, M4 (defence in
+ * depth; the host page is the trust anchor): a view message's text must also be exactly what
+ * normalizeAskText makes of it, the text the host showed beside Send, so no invisible
+ * character, control or extra whitespace reaches the model through a crafted request. Null
+ * when the request is fine.
  */
 export function viewSourceError(req: {
   id: string;
   text: string;
   source?: unknown;
-}): "view_id_without_source" | "source_without_view_id" | "view_text_too_long" | null {
+}): "view_id_without_source" | "source_without_view_id" | "view_text_too_long" | "view_text_not_normalized" | null {
   const fromView = isViewMessageId(req.id);
   const hasSource = req.source !== undefined;
   if (fromView && !hasSource) return "view_id_without_source";
   if (hasSource && !fromView) return "source_without_view_id";
   if (fromView && Array.from(req.text).length > ASK_TEXT_MAX) return "view_text_too_long";
+  if (fromView && normalizeAskText(req.text) !== req.text) return "view_text_not_normalized";
   return null;
 }
 

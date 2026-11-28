@@ -73,6 +73,7 @@ import { listDocuments } from "@/lib/workspaces/documents";
 import { getMemo } from "@/lib/workspaces/memo";
 import { compileMemo } from "@/lib/workspaces/memoCompile";
 import { summarizeIfLong } from "@/lib/agent/summary";
+import { markViewMessages } from "@/lib/agent/viewMessages";
 import { describeModelError, modelErrorCode, modelErrorLogLine, type ModelErrorDetails } from "@/lib/agent/modelError";
 import type { DocumentMeta, ProfileSummary } from "@/lib/workspaces/types";
 
@@ -239,26 +240,9 @@ export function patchApproval(
   return { history: [...history.slice(0, -1), assistant], assistant };
 }
 
-/**
- * PR 6 (spec 08 S10.4): the fixed words the model sees before a message sent from a view.
- * Added only when the history is built for the model, never stored.
- */
-export const VIEW_MESSAGE_MARKER = "(Sent from a button in a generated view.) ";
-
-/**
- * Copies of the messages in which the first text part of every user message with a view id
- * starts with VIEW_MESSAGE_MARKER (spec 08 S10.4); every other message is returned as it is.
- * Nothing stored changes: the loop applies this to what it sends the model.
- */
-export function markViewMessages<M extends UIMessage>(messages: M[]): M[] {
-  return messages.map((m) => {
-    if (m.role !== "user" || !isViewMessageId(m.id)) return m;
-    const at = m.parts.findIndex((p) => p.type === "text");
-    if (at < 0) return m;
-    const parts = m.parts.map((p, i) => (i === at && p.type === "text" ? { ...p, text: VIEW_MESSAGE_MARKER + p.text } : p));
-    return { ...m, parts };
-  });
-}
+// PR 6 (spec 08 S10.4): the view-message marker. It lives in viewMessages.ts (polish wave,
+// M3) so summary.ts can use it too; re-exported here for the loop's callers and tests.
+export { VIEW_MESSAGE_MARKER, markViewMessages } from "@/lib/agent/viewMessages";
 
 /**
  * PR 7 (the 2026-11-28 live check, ruling 3): the note on an earlier view of another variant.

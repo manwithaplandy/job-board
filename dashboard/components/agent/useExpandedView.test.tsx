@@ -3,7 +3,7 @@
 // that Back closes, Escape on the page, the <html> class, and cleanup.
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { EXPANDED_HTML_CLASS, useExpandedView } from "./useExpandedView";
+import { EXPANDED_HTML_CLASS, PENDING_BACK_MS, useExpandedView } from "./useExpandedView";
 
 const A = "chain-a";
 const B = "chain-b";
@@ -156,6 +156,77 @@ test("collapse's own late back() does not collapse a view expanded again before 
   // A later Back is the user's own and collapses as usual.
   popstate(null);
   expect(result.current.expandedChainId).toBeNull();
+});
+
+test("a back() that never arrives stops being waited for after PENDING_BACK_MS, so the user's real Back is not swallowed (polish M10)", () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const { result } = mount();
+    act(() => result.current.expand(A));
+    act(() => result.current.collapse());
+    expect(back).toHaveBeenCalledTimes(1);
+    // back() fired no popstate. Just inside the window, a popstate is still taken as it.
+    act(() => vi.advanceTimersByTime(PENDING_BACK_MS - 1));
+    act(() => result.current.expand(B));
+    act(() => vi.advanceTimersByTime(1));
+    // The window has passed: the user's Back (any later popstate) collapses as usual.
+    popstate(null);
+    expect(result.current.expandedChainId).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a popstate inside the window is swallowed once, and its timer then does nothing (polish M10)", () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const { result } = mount();
+    act(() => result.current.expand(A));
+    act(() => result.current.collapse());
+    act(() => result.current.expand(B));
+    popstate(null);
+    expect(result.current.expandedChainId).toBe(B);
+    expect(vi.getTimerCount()).toBe(0);
+    act(() => vi.advanceTimersByTime(PENDING_BACK_MS * 2));
+    popstate(null);
+    expect(result.current.expandedChainId).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a collapse again before the first back() arrives restarts the window (polish M10)", () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const { result } = mount();
+    act(() => result.current.expand(A));
+    act(() => result.current.collapse());
+    act(() => vi.advanceTimersByTime(PENDING_BACK_MS - 100));
+    act(() => result.current.expand(B));
+    act(() => result.current.collapse());
+    expect(vi.getTimerCount()).toBe(1);
+    // The first window would have ended here; the second is still open.
+    act(() => vi.advanceTimersByTime(200));
+    act(() => result.current.expand(A));
+    popstate(null);
+    expect(result.current.expandedChainId).toBe(A);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("unmount clears a pending window's timer (polish M10)", () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const { result, unmount } = mount();
+    act(() => result.current.expand(A));
+    act(() => result.current.collapse());
+    expect(vi.getTimerCount()).toBe(1);
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test("a collapse that did not go back swallows no popstate", () => {
